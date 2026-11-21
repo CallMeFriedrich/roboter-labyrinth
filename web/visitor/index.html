@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>Roboter-Labyrinth</title>
+  <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/shared/tokens.css">
+  <link rel="stylesheet" href="/static/shared/components.css">
+  <link rel="stylesheet" href="/static/visitor/visitor.css">
+</head>
+<body>
+  <div id="stage" class="stage" data-state="DISCONNECTED">
+    <header class="head">
+      <div id="logo" class="logo" aria-label="TFO Bruneck"></div>
+    </header>
+
+    <main class="grid">
+      <section class="left" aria-live="polite">
+        <p class="status">
+          <span id="tag" class="tag" hidden>Roboter</span>
+          <span id="status"></span>
+        </p>
+
+        <div class="clock">
+          <div id="timer" class="timer num is-dim" aria-label="Zeit">
+            <span id="timer-main">0:00</span><span id="timer-fraction" class="fraction">.00</span>
+          </div>
+          <div id="countdown" class="countdown num" hidden></div>
+        </div>
+
+        <div class="context">
+          <form id="form" class="form" autocomplete="off" novalidate>
+            <div class="fields">
+              <label class="field field-name">
+                <span class="field-label">Name</span>
+                <input id="name" name="name" type="text" maxlength="20" placeholder="z. B. Lena"
+                       autocapitalize="words" spellcheck="false" enterkeyhint="next">
+              </label>
+              <label class="field field-year">
+                <span class="field-label">Geburtsjahr</span>
+                <input id="year" name="year" type="text" inputmode="numeric" maxlength="4"
+                       placeholder="z. B. 2009" class="num" enterkeyhint="go">
+              </label>
+              <button id="start" type="submit" class="btn btn-primary btn-visitor">Start</button>
+            </div>
+            <p id="form-error" class="form-error" role="alert"></p>
+            <button id="request-auto" type="button" class="btn btn-text btn-visitor-text">Roboter fahren lassen</button>
+          </form>
+
+          <div id="drive" class="drive" hidden>
+            <div class="keys" aria-hidden="true">
+              <span class="key key-w" data-key="w">W</span>
+              <span class="key key-a" data-key="a">A</span>
+              <span class="key key-s" data-key="s">S</span>
+              <span class="key key-d" data-key="d">D</span>
+            </div>
+            <div class="drive-side">
+              <p class="hint">Fahr mit W A S D durchs Labyrinth.</p>
+              <button id="give-up" type="button" class="btn btn-visitor btn-quiet">Aufgeben</button>
+            </div>
+          </div>
+
+          <div id="result" class="result" hidden>
+            <p id="result-title" class="result-title">Geschafft.</p>
+            <p id="result-rank" class="result-rank num"></p>
+          </div>
+
+          <div id="waiting" class="waiting" hidden>
+            <button id="cancel-auto" type="button" class="btn btn-visitor btn-quiet">Abbrechen</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right">
+        <section class="robot-card">
+          <svg class="robot-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-robot"></use></svg>
+          <span class="robot-label">Bestzeit Roboter</span>
+          <span id="robot-best" class="robot-time num">–:––.––</span>
+        </section>
+
+        <h2 class="section-title">Bestenliste</h2>
+        <ol id="board" class="board"></ol>
+        <p id="board-empty" class="board-empty" hidden>Noch keine Zeiten. Sei die oder der Erste.</p>
+        <div id="own-row" class="own-row" hidden></div>
+      </aside>
+    </main>
+
+    <div id="pause" class="pause" hidden>
+      <p>Kurze Pause – ein Betreuer kümmert sich darum.</p>
+    </div>
+  </div>
+  <script type="module" src="/static/visitor/visitor.js"></script>
+</body>
+</html>

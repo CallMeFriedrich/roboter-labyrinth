@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de" class="admin">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Labyrinth">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="/static/admin/icon-180.png">
+  <link rel="icon" href="/static/admin/icon-180.png">
+  <title>Labyrinth – Betreuung</title>
+  <link rel="stylesheet" href="/static/shared/tokens.css">
+  <link rel="stylesheet" href="/static/shared/components.css">
+  <link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+  <!-- Login -->
+  <main id="login" class="login" hidden>
+    <form id="login-form" class="login-box" autocomplete="off">
+      <h1 class="large-title">Betreuung</h1>
+      <p class="login-text">Gib die PIN ein, um das Labyrinth zu bedienen.</p>
+      <input id="pin" class="pin num" type="password" inputmode="numeric" maxlength="8"
+             aria-label="PIN" autocomplete="off" placeholder="PIN">
+      <p id="login-error" class="login-error" role="alert"></p>
+      <button type="submit" class="btn btn-primary btn-block">Anmelden</button>
+    </form>
+  </main>
+
+  <!-- App -->
+  <div id="app" class="app" hidden>
+    <div id="banner" class="banner" hidden>
+      <div class="banner-text">
+        <strong>Auto-Lauf angefragt</strong>
+        <span>Ein Besucher möchte den Roboter fahren lassen.</span>
+      </div>
+      <button id="banner-reject" type="button" class="btn">Ablehnen</button>
+      <button id="banner-approve" type="button" class="btn btn-primary">Freigeben</button>
+    </div>
+
+    <nav id="sidebar" class="sidebar">
+      <h1 class="large-title">Labyrinth</h1>
+      <div id="nav-status" class="nav-status"></div>
+      <ul id="nav" class="group nav"></ul>
+      <button id="logout" type="button" class="btn btn-text nav-logout">Abmelden</button>
+    </nav>
+
+    <main id="content" class="content">
+      <header class="content-head">
+        <button id="back" type="button" class="btn btn-text back">
+          <svg aria-hidden="true"><use href="/static/shared/icons.svg#i-back"></use></svg>Zurück
+        </button>
+        <h2 id="title" class="title-1"></h2>
+      </header>
+      <div id="sections"></div>
+    </main>
+
+    <div id="toasts" class="toasts" aria-live="assertive"></div>
+    <div id="sheet-layer" class="sheet-layer" hidden></div>
+  </div>
+  <script type="module" src="/static/admin/admin.js"></script>
+</body>
+</html>

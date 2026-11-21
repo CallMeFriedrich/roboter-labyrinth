@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <!-- Own line icons: 20 px grid, 1.5 px stroke, round caps. -->
+  <symbol id="i-robot" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 17.25h8"/>
+    <path d="M7 17.25v-3"/>
+    <circle cx="7" cy="12.5" r="1.75"/>
+    <path d="M7.9 11 11.6 5.6"/>
+    <circle cx="12.5" cy="4.25" r="1.5"/>
+    <path d="M13.9 4.9 16.5 8"/>
+    <path d="M15 9.25 17.75 7"/>
+  </symbol>
+  <symbol id="i-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m7.5 4.5 5.5 5.5-5.5 5.5"/>
+  </symbol>
+  <symbol id="i-back" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12.5 4.5 7 10l5.5 5.5"/>
+  </symbol>
+  <symbol id="i-arrow" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 15.5v-11"/>
+    <path d="m5.5 9 4.5-4.5L14.5 9"/>
+  </symbol>
+  <symbol id="i-arrow-diag" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 14 14 6"/>
+    <path d="M7.5 6H14v6.5"/>
+  </symbol>
+  <symbol id="i-minus" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M5 10h10"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M5 10h10M10 5v10"/>
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="10" cy="10" r="7.25"/>
+    <path d="m6.75 10.25 2.25 2.25 4.25-4.75"/>
+  </symbol>
+  <symbol id="i-open" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="10" cy="10" r="7.25"/>
+    <path d="M10 6.25v4.5M10 13.5v.01"/>
+  </symbol>
+</svg>

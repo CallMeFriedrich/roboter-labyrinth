@@ -1,0 +1,99 @@
+/* Design tokens (CLAUDE.md §10). Dark is the default: the visitor screen is always dark.
+   The admin panel opts into light/dark by setting class="admin" on <html>. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/static/fonts/InterVariable.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --bg-grouped: #000000;
+  --surface-1: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --surface-3: #3a3a3c;
+  --separator: rgba(84, 84, 88, 0.6);
+  --label: #ffffff;
+  --label-2: rgba(235, 235, 245, 0.62);
+  --label-3: rgba(235, 235, 245, 0.32);
+  --success: #30d158;
+  --danger: #ff453a;
+  --warning: #ffd60a;
+  --accent: #0a84ff;            /* TFO accent colour goes here once it is known */
+  --on-accent: #ffffff;
+  --toggle-on: #30d158;
+
+  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI Variable", system-ui, sans-serif;
+
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px;
+  --s-8: 32px; --s-10: 40px; --s-12: 48px; --s-16: 64px; --s-24: 96px;
+
+  --r-group: 10px;
+  --r-control: 12px;
+  --r-field: 14px;
+  --r-card: 16px;
+  --r-sheet: 22px;
+  --r-pill: 999px;
+
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-fast: 120ms;
+  --t-std: 200ms;
+  --t-sheet: 420ms;
+}
+
+@media (prefers-color-scheme: light) {
+  :root.admin {
+    color-scheme: light;
+    --bg: #ffffff;
+    --bg-grouped: #f2f2f7;
+    --surface-1: #ffffff;
+    --surface-2: #e9e9ee;
+    --surface-3: #dcdce2;
+    --separator: rgba(60, 60, 67, 0.29);
+    --label: #000000;
+    --label-2: rgba(60, 60, 67, 0.6);
+    --label-3: rgba(60, 60, 67, 0.3);
+    --success: #248a3d;
+    --danger: #ff3b30;
+    --warning: #b25000;
+    --accent: #007aff;
+    --toggle-on: #34c759;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-family: var(--font);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--label);
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.004em;
+}
+
+.num { font-variant-numeric: tabular-nums; }
+
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-property: opacity, background-color, color !important;
+  }
+}

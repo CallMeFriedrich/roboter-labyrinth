@@ -1,0 +1,74 @@
+# Roboter-Labyrinth – feste Konfiguration.
+# Harte Grenzen stehen hier und nicht in der Admin-Oberflaeche (CLAUDE.md §3).
+# Nach einer Aenderung den Server neu starten.
+
+[server]
+host = "0.0.0.0"
+port = 8000
+# Only these hosts may control the game through the visitor screen
+# (keys, start, give up). Other devices in the hotspot can only watch.
+visitor_control_hosts = ["127.0.0.1", "::1", "localhost"]
+
+[robot]
+ip = "192.168.0.30"
+port = 5000
+logger_port = 5001
+connect_timeout_s = 2.5
+command_timeout_s = 5.0
+reconnect_interval_s = 2.0
+ping_interval_s = 2.0
+# Joint pose used as "Home" until another one is taught in the admin panel.
+home_joints = [0.0, 45.0, 0.0, 0.0, -45.0, 0.0]
+# Speed for joint moves to/from home, mm/s (TCP) and deg/s.
+home_speed = 100.0
+# Speed for manual jogging from the admin panel, mm/s.
+admin_jog_speed = 20.0
+
+[admin]
+# Written by:  .venv\Scripts\python tools\set_pin.py
+pin_sha256 = "d9ecbae97dce92d50add4811f606cf2e035ad2f504013c709cd5d9786f5e2800"
+session_hours = 8
+
+[paths]
+database = "data/labyrinth.db"
+backups = "data/backups"
+
+# Hard limits [min, max] for the values that can be changed in the admin panel.
+[limits]
+visitor_speed = [10.0, 150.0]
+auto_speed = [50.0, 1000.0]
+approach_speed = [20.0, 300.0]
+jog_rate_hz = [10.0, 50.0]
+pin_diameter = [1.0, 14.0]
+wall_tolerance = [-1.0, 3.0]
+auto_extra_margin = [0.0, 5.0]
+insert_depth = [0.0, 20.0]
+retract_distance = [10.0, 100.0]
+tool_roll_deg = [-180.0, 180.0]
+countdown_s = [0.0, 5.0]
+result_display_s = [3.0, 30.0]
+
+# Cartesian box (robot base coordinates, mm) that manual jogging in the base
+# frame may never leave. Used while the plate is not calibrated yet.
+# Opened up to the reach of the IRB 120 with the pen (580 mm wrist + ~60 mm tool),
+# on request on 18.11. z = 0 is the underside of the robot foot (the table surface):
+# below that the pen would hit the table, so the lower limit stays at 0.
+# Earlier, tighter values: x 150…620, y −350…350, z 80…750.
+[workspace_base]
+x = [-650.0, 650.0]
+y = [-650.0, 650.0]
+z = [0.0, 950.0]
+
+# Simulator: where the (virtual) plate stands in base coordinates.
+# Origin = top left corner seen by the visitors, quaternion [w, x, y, z].
+[sim]
+acceleration = 1000.0
+latency_ms = 15.0
+plate_origin = [450.0, -200.0, 550.0]
+plate_quat = [0.5, -0.5, -0.5, 0.5]
+home_position = [374.0, 0.0, 420.0]
+auto_home = true
+
+[kiosk]
+# Top left corner of the visitor monitor (second screen) in desktop pixels.
+window_position = "1920,0"

@@ -1,0 +1,66 @@
+/* Components shared by the visitor screen and the admin panel (CLAUDE.md §10.4). */
+
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 44px;
+  padding: 0 var(--s-5);
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--surface-2);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease),
+              opacity var(--t-std) var(--ease), background-color var(--t-std) var(--ease);
+}
+.btn:active:not(:disabled), .btn.is-pressed:not(:disabled) { filter: brightness(0.92); transform: scale(0.98); }
+.btn:disabled { opacity: 0.35; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-text { background: transparent; padding: 0 var(--s-2); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger-text { color: var(--danger); }
+.btn-block { display: flex; width: 100%; }
+
+/* Hairline that stays 1 device pixel on high-density screens. */
+.hairline { position: relative; }
+.hairline::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--separator);
+  transform: scaleY(0.5);
+  transform-origin: bottom;
+}
+
+/* ------------------------------------------------------------------ live map */
+.map { display: block; width: 100%; height: auto; border-radius: var(--r-group); touch-action: manipulation; }
+.map .plate { fill: var(--surface-1); }
+.map .channel { fill: var(--bg-grouped); }
+.map .allowed { fill: none; stroke: var(--label-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.map .lost { fill: var(--danger); opacity: 0.55; }
+.map .engraving { fill: var(--label-3); }
+.map .marker { fill: none; stroke: var(--label-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.map .hole { fill: var(--bg-grouped); stroke: var(--label-3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.map .path { fill: none; stroke: var(--label-2); stroke-width: 1.5; stroke-dasharray: 5 5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.map .gate { stroke-width: 3; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.map .gate-start { stroke: var(--success); }
+.map .gate-finish { stroke: var(--label); }
+.map .arrow { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.map .arrow-start { stroke: var(--success); }
+.map .arrow-finish { stroke: var(--label); }
+.map .mark { font-size: 9px; font-weight: 600; fill: var(--label-2); text-anchor: middle; dominant-baseline: central; }
+.map .tap { fill: var(--accent); }
+.map .pen-halo { fill: var(--accent); opacity: 0.22; }
+.map .pen { fill: var(--accent); }
+.map.is-tappable { cursor: crosshair; }

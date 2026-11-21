@@ -1,0 +1,8 @@
+.venv/
+data/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Third-party documents (copyright): kept locally, not published
+reference/docs/*.pdf
