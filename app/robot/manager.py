@@ -311,8 +311,8 @@ class RobotManager:
     async def read_joints(self) -> list[float]:
         return await self._do(self.driver.get_joints())
 
-    async def jog(self, frame: str, delta: Point3, zone: str = "fine") -> None:
-        """Manual move relative to the last commanded (or measured) position."""
+    async def _prepare_admin(self, frame: str) -> None:
+        """Switch to the frame and make sure position and orientation are known."""
         if frame not in ("base", "plate"):
             raise ValueError("Unbekanntes Koordinatensystem")
         if frame == "plate":
@@ -321,8 +321,21 @@ class RobotManager:
             await self.apply_frame(frame)
         if self.commanded is None or (frame == "base" and self._quat is None):
             pose = await self.read_pose()
-            self.commanded, self._quat = pose.xyz, pose.q
+            self.commanded, self._quat = tuple(pose.xyz), pose.q
+
+    async def jog(self, frame: str, delta: Point3, zone: str = "fine") -> None:
+        """Manual move relative to the last commanded (or measured) position."""
+        await self._prepare_admin(frame)
         x, y, z = (self.commanded[i] + delta[i] for i in range(3))
+        await self._admin_move(frame, (x, y, z), zone)
+
+    async def move_to(self, frame: str, target: Point3, zone: str = "fine") -> None:
+        """Straight move to an absolute target; the head keeps its orientation (base frame)."""
+        await self._prepare_admin(frame)
+        await self._admin_move(frame, tuple(float(v) for v in target), zone)
+
+    async def _admin_move(self, frame: str, target: Point3, zone: str) -> None:
+        x, y, z = target
         speed = self.config.robot.admin_jog_speed
         if frame == "plate":
             await self.move_plate(x, y, z, speed, zone, "admin")

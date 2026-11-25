@@ -11,6 +11,7 @@ Conventions
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -240,3 +241,72 @@ def tool_orientation(viewer_side: str, roll_deg: float = 0.0) -> Quat:
 def tool_axis_in_plate(viewer_side: str, roll_deg: float = 0.0) -> np.ndarray:
     """Direction of the tool z axis in plate coordinates (for tests/diagnostics)."""
     return quat_to_rotmat(tool_orientation(viewer_side, roll_deg)) @ np.array([0.0, 0.0, 1.0])
+
+
+# ------------------------------------------------------- hole prediction
+@dataclass
+class HoleEstimate:
+    """Best guess of the plate pose from the holes measured so far (base coordinates)."""
+    origin: np.ndarray                 # plate (0|0) in base coordinates
+    ex: np.ndarray                     # plate x (right as seen by the visitors)
+    ey: np.ndarray                     # plate y (down)
+    towards_robot: np.ndarray          # unit normal of the plate pointing to the robot side
+    used: int                          # number of measured holes the guess is based on
+
+    def hole(self, x: float, y: float) -> np.ndarray:
+        return self.origin + x * self.ex + y * self.ey
+
+
+def estimate_holes(measured: dict[int, Sequence[float]], width: float = PLATE_SIZE,
+                   height: float = PLATE_SIZE, viewer_side: str = "robot") -> HoleEstimate | None:
+    """Predict the plate from 1–4 measured hole centres.
+
+    1 hole:  the plate is assumed upright and square to the robot (in the base Y–Z plane).
+    2 holes: their direction is known; "down" is taken from gravity (−Z of the base).
+    3+ holes: rigid best fit (Kabsch) of the nominal hole layout onto the measurements.
+    """
+    _check_side(viewer_side)
+    holes = holes_plate(width, height)
+    known = {k: np.asarray(v, dtype=float) for k, v in measured.items() if k in holes and v is not None}
+    if not known:
+        return None
+    up = np.array([0.0, 0.0, 1.0])
+    # Guess for an upright plate square to the robot; robot looks along +X.
+    side = -1.0 if viewer_side == "robot" else 1.0
+    ex_guess, ey_guess = np.array([0.0, side, 0.0]), -up
+
+    keys = sorted(known)
+    plate_pts = {k: np.array([holes[k][0], holes[k][1]]) for k in keys}
+    ex, ey = ex_guess, ey_guess
+    if len(keys) >= 3:
+        src = np.array([[*plate_pts[k], 0.0] for k in keys])
+        dst = np.array([known[k] for k in keys])
+        sc, dc = src.mean(axis=0), dst.mean(axis=0)
+        u, _, vt = np.linalg.svd((src - sc).T @ (dst - dc))
+        d = np.sign(np.linalg.det(vt.T @ u.T)) or 1.0
+        rot = vt.T @ np.diag([1.0, 1.0, d]) @ u.T
+        if np.linalg.matrix_rank(src - sc, tol=1e-6) >= 2:
+            ex, ey = rot[:, 0], rot[:, 1]
+        else:                                   # three holes on one line: fall back to two-point logic
+            keys = keys[:2]
+    if len(keys) == 2:
+        a, b = keys
+        dp = plate_pts[b] - plate_pts[a]
+        dm = known[b] - known[a]
+        u_p = dp / np.linalg.norm(dp)
+        m = dm / np.linalg.norm(dm)
+        v_p = np.array([-u_p[1], u_p[0]])       # in-plane perpendicular (plate coordinates)
+        c = v_p[0] * ex_guess + v_p[1] * ey_guess
+        c = c - np.dot(c, m) * m
+        c = c / np.linalg.norm(c)
+        ex = u_p[0] * m + v_p[0] * c
+        ey = u_p[1] * m + v_p[1] * c
+    ex = ex / np.linalg.norm(ex)
+    ey = ey - np.dot(ey, ex) * ex
+    ey = ey / np.linalg.norm(ey)
+    origin = np.mean([known[k] - plate_pts[k][0] * ex - plate_pts[k][1] * ey for k in keys], axis=0)
+    normal = np.cross(ex, ey)
+    centre = origin + width / 2 * ex + height / 2 * ey
+    if np.dot(normal, -centre) < 0:              # the robot base is at (0|0|0)
+        normal = -normal
+    return HoleEstimate(origin, ex, ey, normal, len(known))

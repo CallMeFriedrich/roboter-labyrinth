@@ -40,6 +40,8 @@ IDLE_ONLY_SETTINGS = GEOMETRY_SETTINGS | {"driver", "viewer_side", "tool_roll_de
                                           "retract_distance"}
 SEED_SVG = ROOT / "tests" / "data" / "Labyrinth_Deckplatte_Entwurf1.svg"
 ORIENTATION_TOLERANCE_DEG = 1.0   # head orientation may differ this much between holes
+HOLE_APPROACH_CLEARANCE = 20.0    # mm in front of a predicted hole: the pen never hits the plate
+HOLE_NEAR_CLEARANCE = 2.0         # "Näher ran": stop this far in front, the rest by hand
 
 
 class GameError(Exception):
@@ -89,6 +91,7 @@ class GameEngine:
         self._dirty = asyncio.Event()
         self.calib_points: dict[int, list[float]] = {
             int(k): v for k, v in (db.get_setting("calib_draft", {}) or {}).items()}
+        self.last_hole_approach: dict | None = None   # {"index", "clearance", "target"} of the last "Hinfahren"
         self.calib_quats: dict[int, list[float]] = {
             int(k): v for k, v in (db.get_setting("calib_draft_q", {}) or {}).items()}
 
@@ -764,6 +767,20 @@ class GameEngine:
         async with self._admin_motion():
             await self.robot.jog(frame, tuple(v * step for v in d), "fine")
 
+    async def move_to(self, frame: str, target) -> list[float]:
+        """Admin: drive straight to a coordinate in the base or plate frame (slow, fine zone)."""
+        try:
+            xyz = tuple(float(v) for v in target)
+        except (TypeError, ValueError):
+            raise GameError("Bitte drei Zahlen für X, Y und Z eingeben.") from None
+        if len(xyz) != 3 or not all(math.isfinite(v) for v in xyz):
+            raise GameError("Bitte drei Zahlen für X, Y und Z eingeben.")
+        if frame not in ("base", "plate"):
+            raise GameError("Unbekanntes Koordinatensystem.")
+        async with self._admin_motion():
+            await self.robot.move_to(frame, xyz)
+        return [round(v, 2) for v in xyz]
+
     async def jog_hold(self, frame: str, direction) -> None:
         """Heartbeat of the hold-to-move pad; a zero direction stops."""
         self._hold = (frame, self._direction(direction), time.monotonic())
@@ -854,12 +871,17 @@ class GameEngine:
             if self.robot.frame_mode != "base":
                 await self.robot.apply_frame("base")
             pose = await self.robot.read_pose()
+            waiting = self._still_at_approach(pose.xyz)
+            if waiting is not None:
+                raise GameError(f"Der Stift steht noch {waiting['clearance']:g} mm vor der Bohrung. "
+                                "Erst mit dem Pad ganz auf die Bohrung fahren, dann übernehmen.")
             self.calib_points[index] = [round(v, 3) for v in pose.xyz]
             self.calib_quats[index] = [round(v, 6) for v in frames.quat_normalize(pose.q)]
             self._store_draft()
             return self.calib_points[index]
 
     def calib_clear(self) -> None:
+        self.last_hole_approach = None
         self.calib_points = {}
         self.calib_quats = {}
         self._store_draft()
@@ -885,6 +907,65 @@ class GameEngine:
             self.robot.home_confirmed = False
             if self.robot.connected:
                 await self.robot.apply_frame()
+
+    def _hole_estimate(self):
+        if not self.calib_points:
+            return None
+        width, height = self._plate_size()
+        try:
+            return frames.estimate_holes(self.calib_points, width, height, self.robot.viewer_side())
+        except (ValueError, ZeroDivisionError, FloatingPointError):
+            return None
+
+    def hole_predictions(self) -> dict[str, dict] | None:
+        """Where the holes probably are (base coordinates), from the holes measured so far."""
+        est = self._hole_estimate()
+        if est is None:
+            return None
+        holes = frames.holes_plate(*self._plate_size())
+        out = {}
+        for index, (x, y) in holes.items():
+            centre = est.hole(x, y)
+            approach = centre + HOLE_APPROACH_CLEARANCE * est.towards_robot
+            out[str(index)] = {"xyz": [round(float(v), 1) for v in centre],
+                               "approach": [round(float(v), 1) for v in approach],
+                               "measured": index in self.calib_points, "based_on": est.used}
+        return out
+
+    async def calib_goto_hole(self, index: int, clearance: float = HOLE_APPROACH_CLEARANCE) -> list[float]:
+        """Drive to just in front of the (predicted) hole; the head is not turned.
+
+        clearance 20 mm ("Hinfahren"): first straight away from the plate, then across.
+        clearance 2 mm ("Näher ran"): straight towards the plate, the last bit is done by hand.
+        """
+        if index not in (1, 2, 3, 4):
+            raise GameError("Es gibt nur die Bohrungen 1 bis 4.")
+        if clearance not in (HOLE_APPROACH_CLEARANCE, HOLE_NEAR_CLEARANCE):
+            raise GameError("Unbekannter Abstand.")
+        est = self._hole_estimate()
+        if est is None:
+            raise GameError("Zuerst eine Bohrung anfahren und übernehmen, dann kann ich die anderen schätzen.")
+        x, y = frames.holes_plate(*self._plate_size())[index]
+        target = est.hole(x, y) + clearance * est.towards_robot
+        async with self._admin_motion():
+            await self.robot._prepare_admin("base")
+            current = self.robot.commanded
+            in_front = float(sum((c - o) * n for c, o, n in zip(current, est.origin, est.towards_robot)))
+            if in_front < HOLE_APPROACH_CLEARANCE - 0.5:
+                # 1) straight away from the plate first, so that the move across never touches it
+                lift = HOLE_APPROACH_CLEARANCE - in_front
+                await self.robot.move_to("base", tuple(float(c + lift * n)
+                                                       for c, n in zip(current, est.towards_robot)))
+            await self.robot.move_to("base", tuple(float(v) for v in target))
+            self.last_hole_approach = {"index": index, "clearance": clearance,
+                                       "target": [round(float(v), 2) for v in target]}
+        return [round(float(v), 1) for v in target]
+
+    def _still_at_approach(self, xyz) -> dict | None:
+        last = self.last_hole_approach
+        if last is not None and math.dist(xyz, last["target"]) < 0.5:
+            return last
+        return None
 
     async def sim_goto_hole(self, index: int) -> None:
         """Simulator only: put the virtual pen tip on a hole centre."""
@@ -961,6 +1042,10 @@ class GameEngine:
             "timing_effective": self.effective_timing_method(),
             "calibration": calibration, "calib_points": {str(k): v for k, v in self.calib_points.items()},
             "calib_result": self.calibration_result(),
+            "hole_predictions": self.hole_predictions(), "hole_clearance": HOLE_APPROACH_CLEARANCE,
+            "hole_near_clearance": HOLE_NEAR_CLEARANCE,
+            "hole_waiting": (dict(self.last_hole_approach) if self.last_hole_approach and robot.commanded
+                             and self._still_at_approach(robot.commanded) else None),
             "tool": self.db.get_setting("tool", DEFAULT_TOOL), "home_joints": robot.home_joints,
             "settings": self.settings.all(),
             "active_labyrinth": ({"id": self.lab.id, "name": self.lab.name, "ready": self.lab.ready,

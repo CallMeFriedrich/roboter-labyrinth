@@ -2,6 +2,8 @@
 
 Exponat für den Tag der offenen Tür der TFO Bruneck (28.11.2026): Besucher steuern einen ABB IRB 120 mit W A S D durch ein senkrechtes Holzlabyrinth. Die Software misst die Zeit, führt die Bestenliste und kann den kürzesten Weg selbst fahren.
 
+**Komplette Anleitung vom Einschalten bis zur Freigabe: [docs/Setup-Anleitung.md](docs/Setup-Anleitung.md)**
+
 Alles läuft ohne Roboter im **Simulator**. Am echten Roboter wird nur gemessen und eingemessen.
 
 ## Schnellstart auf diesem PC

@@ -148,6 +148,8 @@ Software-Grenzen (zusätzlich):
 
 ## 5. Bedienungsanleitung für die Aufsicht
 
+Der komplette Ablauf mit Kalibrierung, `SERVER.mod` und Tool steht in der [Setup-Anleitung](Setup-Anleitung.md).
+
 ### 5.1 Start
 
 1. Roboter-Ethernet an den Laptop, Monitor anschließen, Hotspot einschalten.
@@ -162,7 +164,7 @@ Software-Grenzen (zusätzlich):
 1. **Einmessen** öffnen. Unter **Roboter** das Koordinatensystem **Basis** wählen.
 2. Mit dem Jog-Pad die Stiftspitze mittig auf die Bohrung **oben links** fahren (aus Sicht der Besucher), **Übernehmen**.
 3. Ebenso **oben rechts**, **unten links** und zur Kontrolle **unten rechts**.
-4. Ergebnis prüfen: Abstände 385 mm ± 2 mm, Kontrollabweichung unter 2 mm.
+4. Ergebnis prüfen: Abstände Plattenbreite − 15 mm (300er-Platte: 285 mm) ± 2 mm, Kontrollabweichung unter 2 mm.
 5. **Einmessung aktivieren**, dann **Home anfahren**.
 
 Werkzeug-Versatz, Stiftdurchmesser, Eintauchtiefe, Rückzug und Besucherseite stehen auf derselben Seite.

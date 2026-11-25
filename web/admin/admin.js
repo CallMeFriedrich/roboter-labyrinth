@@ -410,6 +410,43 @@ sections.robot = { title: "Roboter", build(root) {
       el("div", { class: "jog" }, pad, el("div", { class: "jog-z" }, forward, backward))),
     jogFooter));
 
+  // Drive to an exact coordinate (same frame as the pad, head orientation unchanged).
+  const gotoInputs = ["X", "Y", "Z"].map((axis) => el("input", { class: "text-input num-input", type: "text",
+    inputmode: "decimal", "aria-label": `Ziel ${axis}` }));
+  let gotoDirty = false;
+  gotoInputs.forEach((input) => input.addEventListener("input", () => { gotoDirty = true; }));
+  const fillFromPose = () => {
+    if (!S.admin.pose) { toast("Die aktuelle Position ist noch unbekannt. Einmal mit dem Pad fahren.", true); return; }
+    S.admin.pose.forEach((v, i) => { gotoInputs[i].value = formatNumber(v, 1); });
+    gotoDirty = true;
+  };
+  const gotoFooter = el("p", { class: "group-footer" });
+  const gotoCell = actionCell("Anfahren", async () => {
+    const target = gotoInputs.map((input) => Number(input.value.replace(",", ".").trim()));
+    if (target.some((v) => !Number.isFinite(v)) || gotoInputs.some((input) => !input.value.trim())) {
+      toast("Bitte für X, Y und Z je eine Zahl eingeben.", true);
+      return;
+    }
+    const frameName = S.admin.frame === "plate" ? "Platte" : "Basis";
+    const from = S.admin.pose;
+    const distance = from ? Math.hypot(target[0] - from[0], target[1] - from[1], target[2] - from[2]) : null;
+    const seconds = distance === null ? null : distance / (limits.admin_jog_speed || 20);
+    const text = `Ziel im Koordinatensystem ${frameName}: X ${formatNumber(target[0], 1)} · Y ${formatNumber(target[1], 1)} · `
+      + `Z ${formatNumber(target[2], 1)} mm. `
+      + (distance === null ? "Die Startposition ist unbekannt. " : `Strecke ${formatNumber(distance, 0)} mm, ca. ${formatNumber(seconds, 0)} s. `)
+      + "Der Roboter fährt in gerader Linie mit gleicher Kopfstellung. Der Weg muss frei sein.";
+    if (await confirmSheet({ title: "Koordinate anfahren?", action: "Anfahren", destructive: false, text })) {
+      if (await cmd("goto", { frame: S.admin.frame, xyz: target })) { gotoDirty = false; toast("Ziel erreicht."); }
+    }
+  });
+  root.append(group("Koordinate anfahren", [
+    el("li", { class: "cell cell-stack" },
+      el("div", { class: "inline-fields" }, ["X", "Y", "Z"].map((axis, i) => el("label", {}, `${axis} (mm)`, gotoInputs[i])))),
+    actionCell("Aktuelle Position übernehmen", fillFromPose).node,
+    gotoCell.node,
+  ], "").node);
+  root.lastChild.append(gotoFooter);
+
   root.append(group("Home", [
     actionCell("Home anfahren", async () => {
       if (await confirmSheet({ title: "Home anfahren?", action: "Home anfahren", destructive: false,
@@ -447,6 +484,15 @@ sections.robot = { title: "Roboter", build(root) {
     if (!holdTimer) {
       a.pose ? pose.forEach((p, i) => p.set(`${formatNumber(a.pose[i], 1)} mm`)) : pose.forEach((p) => p.set("–"));
     }
+    if (!gotoDirty && !gotoInputs.includes(document.activeElement) && a.pose) {
+      a.pose.forEach((v, i) => { gotoInputs[i].value = formatNumber(v, 1); });
+    }
+    gotoCell.button.disabled = !s.robot.connected || a.busy;
+    gotoFooter.textContent = plate
+      ? "Plattenkoordinaten wie im SVG (oben links = 0, y nach unten). Z = Abstand zur Plattenoberfläche. "
+        + "Außerhalb der Platte oder durch die Wand wird das Ziel abgelehnt."
+      : "Basiskoordinaten des Roboters in mm (X vor, Y links, Z hoch). Die Kopfstellung bleibt gleich. "
+        + `Geschwindigkeit ${formatNumber(limits.admin_jog_speed, 0)} mm/s.`;
   });
   sections.robot.setPen = (message) => {
     message.pos ? pose.forEach((p, i) => p.set(`${formatNumber(message.pos[i], 1)} mm`)) : pose.forEach((p) => p.set("–"));
@@ -476,19 +522,51 @@ sections.calibration = { title: "Einmessen", build(root) {
   };
   const values = new Map();
   const simButtons = [];
+  const goButtons = new Map();
+  const goToHole = async (index, label) => {
+    const pred = S.admin.hole_predictions && S.admin.hole_predictions[String(index)];
+    if (!pred) { toast("Zuerst eine Bohrung anfahren und übernehmen.", true); return; }
+    const waiting = S.admin.hole_waiting;
+    if (waiting && waiting.index === index && waiting.clearance > S.admin.hole_near_clearance) {
+      // Second step: straight towards the plate, stop 2 mm in front.
+      const near = formatNumber(S.admin.hole_near_clearance, 0);
+      if (await confirmSheet({ title: "Näher ran?", action: `Bis ${near} mm vor die Platte`, destructive: false,
+        text: `Der Stift fährt gerade auf die Platte zu und hält ${near} mm vor der geschätzten Bohrung. `
+          + "Die letzten Millimeter fährst du mit dem Pad (0,1 / 1 mm), dann „Übernehmen“." })) {
+        if (await cmd("calib_goto", { index, clearance: S.admin.hole_near_clearance })) {
+          toast(`${near} mm vor „${label}“. Jetzt mit dem Pad genau auf die Bohrung.`);
+        }
+      }
+      return;
+    }
+    const clearance = formatNumber(S.admin.hole_clearance || 20, 0);
+    const basis = pred.based_on === 1 ? "einer gemessenen Bohrung (Annahme: Platte steht senkrecht und quer vor dem Roboter)"
+      : `${pred.based_on} gemessenen Bohrungen`;
+    const text = `Der Stift fährt erst ${clearance} mm von der Platte weg und dann ${clearance} mm vor die Bohrung „${label}“ `
+      + `(geschätzt aus ${basis}). Ziel: X ${formatNumber(pred.approach[0], 1)} · Y ${formatNumber(pred.approach[1], 1)} · `
+      + `Z ${formatNumber(pred.approach[2], 1)} mm. Der Kopf dreht sich nicht. Das letzte Stück mit dem Pad fahren, dann „Übernehmen“.`;
+    if (await confirmSheet({ title: "Zur Bohrung fahren?", action: "Hinfahren", destructive: false, text })) {
+      if (await cmd("calib_goto", { index })) toast(`Vor „${label}“. Jetzt mit dem Pad genau hinfahren.`);
+    }
+  };
   const cells = HOLES.map(([index, label]) => {
     const sub = el("span", { class: "cell-sub num", text: "noch nicht gemessen" });
     values.set(index, sub);
-    const sim = el("button", { type: "button", class: "btn mini-btn", text: "Anfahren", hidden: true,
+    const sim = el("button", { type: "button", class: "btn mini-btn", text: "Sim: setzen", hidden: true,
                                onclick: () => cmd("sim_hole", { index }) });
     simButtons.push(sim);
-    return el("li", { class: "cell" }, sketch(index), el("span", { class: "cell-label" }, label, sub), sim,
+    const go = el("button", { type: "button", class: "btn mini-btn", text: "Hinfahren", disabled: true,
+                              onclick: () => goToHole(index, label) });
+    goButtons.set(index, go);
+    return el("li", { class: "cell" }, sketch(index), el("span", { class: "cell-label" }, label, sub), sim, go,
       el("button", { type: "button", class: "btn mini-btn", text: "Übernehmen",
                      onclick: () => cmd("calib_point", { index }) }));
   });
   root.append(group("Messpunkte", cells,
     "Fahr die Stiftspitze im Basis-Koordinatensystem mittig auf jede Bohrung und übernimm die Position. "
-    + "Reihenfolge immer aus Sicht der Besucher. Im Simulator setzt „Anfahren“ den Stift auf die Bohrung.").node);
+    + "Reihenfolge immer aus Sicht der Besucher. Nach der ersten Bohrung schätzt die Software die anderen: "
+    + "„Hinfahren“ bringt den Stift 20 mm vor die Bohrung, das letzte Stück fährst du mit dem Pad. "
+    + "Mit jeder weiteren Bohrung wird die Schätzung genauer.").node);
 
   const d12 = valueCell("Abstand oben links → oben rechts", "Soll 385,0 mm");
   const d13 = valueCell("Abstand oben links → unten links", "Soll 385,0 mm");
@@ -552,7 +630,17 @@ sections.calibration = { title: "Einmessen", build(root) {
                          4: [[2, plateSize[1] - 15], [3, plateSize[0] - 15]] };
     for (const [index, node] of values) {
       const p = a.calib_points[String(index)];
-      let text = p ? p.map((v) => formatNumber(v, 2)).join("  ·  ") : "noch nicht gemessen";
+      const pred = a.hole_predictions && a.hole_predictions[String(index)];
+      let text = p ? p.map((v) => formatNumber(v, 2)).join("  ·  ")
+        : pred ? `geschätzt: ${pred.xyz.map((v) => formatNumber(v, 1)).join("  ·  ")}` : "noch nicht gemessen";
+      const go = goButtons.get(index);
+      go.disabled = !pred || !s.robot.connected || a.busy;
+      const waitingHere = a.hole_waiting && a.hole_waiting.index === index;
+      go.textContent = waitingHere && a.hole_waiting.clearance > a.hole_near_clearance
+        ? `Näher ran (${formatNumber(a.hole_near_clearance, 0)} mm)` : "Hinfahren";
+      if (waitingHere && !p) {
+        text = `steht ${formatNumber(a.hole_waiting.clearance, 0)} mm vor der Bohrung — mit dem Pad ganz hinfahren, dann übernehmen`;
+      }
       let bad = false;
       for (const [other, soll] of (p ? neighbours[index] || [] : [])) {
         const q = a.calib_points[String(other)];
