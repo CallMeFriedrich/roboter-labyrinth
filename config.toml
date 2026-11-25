@@ -7,10 +7,13 @@ host = "0.0.0.0"
 port = 8000
 # Only these hosts may control the game through the visitor screen
 # (keys, start, give up). Other devices in the hotspot can only watch.
-visitor_control_hosts = ["127.0.0.1", "::1", "localhost"]
+visitor_control_hosts = ["127.0.0.1", "::1", "localhost",]
 
 [robot]
-ip = "192.168.0.30"
+ip = "192.168.0.30"     # Echter Roboter Arm
+#ip = "localhost" 	     #Simulator (RobotStudio)
+
+
 port = 5000
 logger_port = 5001
 connect_timeout_s = 2.5
