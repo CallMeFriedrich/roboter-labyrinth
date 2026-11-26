@@ -33,7 +33,7 @@ def test_tolerance_down_to_minus_10_and_auto_path_stays_clear(simple_svg):
         try:
             await engine.patch_settings({"wall_tolerance": -10.0, "pin_diameter": 6.0})
             with pytest.raises(GameError):
-                await engine.patch_settings({"wall_tolerance": -10.5})
+                await engine.patch_settings({"wall_tolerance": -30.5})     # far beyond any sensible value
             lab = engine.lab
             assert lab.channel.inset == pytest.approx(-7.0)
             assert lab.auto_channel.inset == pytest.approx(3.0)     # robot run: never into a wall
@@ -43,7 +43,8 @@ def test_tolerance_down_to_minus_10_and_auto_path_stays_clear(simple_svg):
     run(scenario())
 
 
-def test_run_ends_when_the_pen_is_too_deep_in_a_wall(simple_svg):
+def test_run_ends_when_the_pen_is_too_deep_in_a_wall(simple_svg, monkeypatch):
+    monkeypatch.setattr("app.game.engine.WALL_HOLD_S", 1.0)
     async def scenario():
         engine = await make_engine(simple_svg)
         try:
@@ -54,10 +55,18 @@ def test_run_ends_when_the_pen_is_too_deep_in_a_wall(simple_svg):
             # Now steer up into the wall until the run ends.
             await hold(engine, ["w"], lambda: engine.sm.state in (S.ABORTING, S.RETURNING_HOME, S.IDLE))
             snap = engine.snapshot()
-            assert snap["notice"] == "Zu tief in der Wand – der Lauf ist vorbei."
-            assert snap["result"] is None
+            assert snap["state"] == "ABORTING"
+            assert snap["notice"] == "Wand berührt – der Roboter bleibt kurz stehen."
+            assert snap["result"] is None and snap["wall_hit"]["time_ms"] > 0
+            frozen = snap["wall_hit"]["time_ms"]
+            assert snap["run"]["running"] is False and snap["run"]["elapsed_ms"] == frozen   # clock stopped
+            # The robot stands still where it touched the wall.
+            standing = engine.robot.commanded
+            await asyncio.sleep(0.5)
+            assert engine.robot.commanded == standing and engine.sm.state == S.ABORTING
+            assert engine.snapshot()["run"]["elapsed_ms"] == frozen
             await wait_for(engine, S.IDLE, timeout=20)
-            assert engine.snapshot()["notice"] is None
+            assert engine.snapshot()["notice"] is None and engine.snapshot()["wall_hit"] is None
             assert engine.board.top(engine.lab.id) == []                  # no time on the board
             assert [r["status"] for r in engine.db.list_runs(engine.lab.id)] == ["aborted"]
             assert engine.robot.at_home
@@ -94,3 +103,25 @@ def test_thin_walls_are_reported_only_when_the_pen_could_cross_them():
     assert not Channel(u_shape, 6.0, -2.0).bridged_walls()
     assert Channel(u_shape, 6.0, -10.0).bridged_walls()
     assert not Channel(u_shape, 6.0, 1.0).bridged_walls()
+
+
+
+def test_tolerance_that_would_cut_through_a_wall_is_refused(simple_svg):
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    async def scenario():
+        engine = await make_engine(simple_svg)
+        try:
+            await engine.patch_settings({"pin_diameter": 6.0})
+            # Pretend the active labyrinth has two corridors with a 10 mm wall between them.
+            engine.lab.geometry.channel = unary_union(
+                [box(0, 0, 100, 16), box(0, 26, 100, 42), box(84, 0, 100, 42)])
+            with pytest.raises(GameError, match="abkürzen") as refused:
+                await engine.patch_settings({"wall_tolerance": -10.0})
+            assert "höchstens" in str(refused.value)
+            assert engine.settings["wall_tolerance"] != -10.0
+            await engine.patch_settings({"wall_tolerance": -3.0})            # still fine
+        finally:
+            await engine.stop()
+    run(scenario())

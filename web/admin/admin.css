@@ -161,6 +161,8 @@ button.cell:disabled { opacity: 0.35; }
 }
 .text-input:focus { outline-color: var(--accent); }
 .num-input { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
+.stepper-value { display: inline-flex; align-items: center; gap: var(--s-2); }
+.stepper-input { width: 88px; }
 .inline-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: var(--s-2); }
 .inline-fields label { display: flex; flex-direction: column; gap: var(--s-1); font-size: 12px; line-height: 16px; letter-spacing: 0.01em; color: var(--label-2); }
 .inline-fields .num-input { width: 100%; }
@@ -219,6 +221,16 @@ button.cell:disabled { opacity: 0.35; }
 
 /* ------------------------------------------------------------------ run list */
 .run-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* Speed of a run: icon + word, every speed has its own leaderboard. */
+.run-mode { display: inline-flex; align-items: center; gap: var(--s-1, 4px); margin-right: var(--s-3);
+  font-size: 13px; line-height: 18px; font-weight: 600; color: var(--label-2); }
+.run-mode svg { width: 16px; height: 16px; }
+.run-mode-slow { color: #248a3d; }
+.run-mode-turbo { color: #d70015; }
+@media (prefers-color-scheme: dark) {
+  .run-mode-slow { color: #30d158; }
+  .run-mode-turbo { color: #ff453a; }
+}
 .run-aborted { color: var(--label-2); font-weight: 400; }
 .empty { padding: var(--s-5) var(--s-4); color: var(--label-2); }
 

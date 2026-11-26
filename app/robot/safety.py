@@ -14,6 +14,8 @@ from ..settings import Config, SettingsStore
 from .driver_base import Pose
 
 SPEED_KINDS = {"visitor": "visitor_speed", "auto": "auto_speed", "approach": "approach_speed"}
+# All three visitor modes share the visitor limit (the highest allowed of the three).
+VISITOR_SPEED_KEYS = ("speed_slow", "visitor_speed", "speed_turbo")
 _EPS = 0.05
 
 
@@ -26,6 +28,8 @@ class Safety:
     def speed_limit(self, kind: str) -> float:
         if kind == "admin":
             return self._config.robot.admin_jog_speed
+        if kind == "visitor":
+            return max(self._settings.limits(key)[1] for key in VISITOR_SPEED_KEYS)
         return self._settings.limits(SPEED_KINDS[kind])[1]
 
     def check_speed(self, kind: str, speed: float) -> float:

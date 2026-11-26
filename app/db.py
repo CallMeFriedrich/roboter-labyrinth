@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS labyrinths(
 CREATE TABLE IF NOT EXISTS runs(
     id INTEGER PRIMARY KEY, labyrinth_id INTEGER, name TEXT, birth_year INTEGER,
     time_ms INTEGER, status TEXT CHECK(status IN ('finished','aborted')),
-    created_at TEXT, deleted INTEGER DEFAULT 0);
+    created_at TEXT, deleted INTEGER DEFAULT 0, speed_mode TEXT DEFAULT 'normal');
 CREATE TABLE IF NOT EXISTS robot_runs(
     id INTEGER PRIMARY KEY, labyrinth_id INTEGER, time_ms INTEGER, speed REAL,
     timing_method TEXT, created_at TEXT);
@@ -49,6 +49,11 @@ class Database:
         self._lock = threading.Lock()
         with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
+            # Older databases: runs had no speed mode yet -> those runs count as "normal".
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(runs)")}
+            if "speed_mode" not in columns:
+                self._conn.execute("ALTER TABLE runs ADD COLUMN speed_mode TEXT DEFAULT 'normal'")
+                self._conn.execute("UPDATE runs SET speed_mode='normal' WHERE speed_mode IS NULL")
 
     def close(self) -> None:
         self._conn.close()
@@ -133,32 +138,36 @@ class Database:
 
     # -------------------------------------------------------------------- runs
     def add_run(self, labyrinth_id: int, name: str, birth_year: int, time_ms: int | None,
-                status: str) -> int:
+                status: str, speed_mode: str = "normal") -> int:
         return self._exec(
-            "INSERT INTO runs(labyrinth_id, name, birth_year, time_ms, status, created_at) "
-            "VALUES(?,?,?,?,?,?)", (labyrinth_id, name, birth_year, time_ms, status, _now())).lastrowid
+            "INSERT INTO runs(labyrinth_id, name, birth_year, time_ms, status, created_at, speed_mode) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (labyrinth_id, name, birth_year, time_ms, status, _now(), speed_mode)).lastrowid
 
-    def top_runs(self, labyrinth_id: int, limit: int = 10) -> list[dict]:
+    def top_runs(self, labyrinth_id: int, limit: int = 10, speed_mode: str = "normal") -> list[dict]:
+        """Best finished runs of one speed mode (every mode has its own board)."""
         rows = self._all(
             "SELECT id, name, birth_year, time_ms FROM runs WHERE labyrinth_id=? AND "
-            "status='finished' AND deleted=0 ORDER BY time_ms, id LIMIT ?", (labyrinth_id, limit))
+            "status='finished' AND deleted=0 AND speed_mode=? ORDER BY time_ms, id LIMIT ?",
+            (labyrinth_id, speed_mode, limit))
         return [dict(r) for r in rows]
 
     def placement(self, labyrinth_id: int, run_id: int) -> tuple[int, int] | None:
-        """(rank, total) of a finished run among all finished runs."""
-        run = self._one("SELECT time_ms FROM runs WHERE id=? AND status='finished' AND deleted=0",
-                        (run_id,))
+        """(rank, total) of a finished run among the finished runs of the same speed mode."""
+        run = self._one("SELECT time_ms, speed_mode FROM runs WHERE id=? AND status='finished' "
+                        "AND deleted=0", (run_id,))
         if run is None:
             return None
-        base = "FROM runs WHERE labyrinth_id=? AND status='finished' AND deleted=0"
+        mode = run["speed_mode"]
+        base = "FROM runs WHERE labyrinth_id=? AND status='finished' AND deleted=0 AND speed_mode=?"
         better = self._one(f"SELECT COUNT(*) AS n {base} AND (time_ms < ? OR (time_ms = ? AND id < ?))",
-                           (labyrinth_id, run["time_ms"], run["time_ms"], run_id))["n"]
-        total = self._one(f"SELECT COUNT(*) AS n {base}", (labyrinth_id,))["n"]
+                           (labyrinth_id, mode, run["time_ms"], run["time_ms"], run_id))["n"]
+        total = self._one(f"SELECT COUNT(*) AS n {base}", (labyrinth_id, mode))["n"]
         return better + 1, total
 
     def list_runs(self, labyrinth_id: int, search: str = "", limit: int = 500) -> list[dict]:
         rows = self._all(
-            "SELECT id, name, birth_year, time_ms, status, created_at FROM runs "
+            "SELECT id, name, birth_year, time_ms, status, created_at, speed_mode FROM runs "
             "WHERE labyrinth_id=? AND deleted=0 AND name LIKE ? ORDER BY id DESC LIMIT ?",
             (labyrinth_id, f"%{search}%", limit))
         return [dict(r) for r in rows]

@@ -144,13 +144,25 @@ function sliderCell(key, label, { step = 1, digits = 0, sub } = {}) {
 
 function stepperCell(key, label, { step = 1, digits = 0, sub } = {}) {
   const def = defs[key];
-  const value = el("span", { class: "cell-value" });
+  // The value is a text field: type a number and press Enter, or use − / +.
+  const input = el("input", { class: "text-input num-input stepper-input", type: "text", inputmode: "decimal",
+                              "aria-label": label });
+  const show = () => { input.value = formatNumber(S.admin.settings[key], digits); };
+  const commit = async () => {
+    const typed = Number(input.value.replace(",", ".").trim());
+    if (!input.value.trim() || !Number.isFinite(typed)) { toast("Bitte eine Zahl eingeben.", true); show(); return; }
+    if (typed === S.admin.settings[key]) { show(); return; }
+    if (!(await cmd("settings", { values: { [key]: typed } }))) show();
+  };
+  input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); input.blur(); } });
+  input.addEventListener("change", commit);
   const change = (delta) => {
     const now = S.admin.settings[key];
     const next = Math.min(def.max, Math.max(def.min, Math.round((now + delta) / step) * step));
     if (next !== now) patchSetting(key, Number(next.toFixed(4)));
   };
-  updaters.push((s) => { value.textContent = `${formatNumber(s.admin.settings[key], digits)} ${def.unit}`.trim(); });
+  updaters.push(() => { if (document.activeElement !== input) show(); });
+  const value = el("span", { class: "cell-value stepper-value" }, input, def.unit ? el("span", { text: def.unit }) : null);
   return el("li", { class: "cell" },
     el("span", { class: "cell-label" }, label, sub ? el("span", { class: "cell-sub", text: sub }) : null), value,
     el("div", { class: "stepper" },
@@ -165,10 +177,20 @@ function choiceCell(key, label, options, sub) {
     el("span", { class: "cell-label" }, label, sub ? el("span", { class: "cell-sub", text: sub }) : null), control.node);
 }
 
+const RUN_MODE = { slow: "Langsam", normal: "Normal", turbo: "Turbo" };
+
+function modeBadge(mode) {
+  const m = RUN_MODE[mode] ? mode : "normal";
+  const badge = el("span", { class: `run-mode run-mode-${m}`, title: RUN_MODE[m] });
+  badge.append(icon(`i-speed-${m}`), el("span", { text: RUN_MODE[m] }));
+  return badge;
+}
+
 function runCells(runs, { deletable = false, onDelete } = {}) {
   return runs.map((run) => el("li", { class: "cell" },
     el("span", { class: "cell-label" }, run.name,
       el("span", { class: "cell-sub num", text: `${run.birth_year} · ${formatDateTime(run.created_at)}` })),
+    modeBadge(run.speed_mode),
     run.status === "finished"
       ? el("span", { class: "run-time", text: formatTime(run.time_ms) })
       : el("span", { class: "run-aborted", text: "abgebrochen" }),
@@ -816,7 +838,9 @@ sections.labyrinth = { title: "Labyrinth", build(root) {
 // ---------------------------------------------------------------------- game
 sections.game = { title: "Spiel", build(root) {
   root.append(group("Geschwindigkeit", [
-    sliderCell("visitor_speed", "Besucher", { step: 5 }),
+    sliderCell("speed_slow", "Besucher: Langsam", { step: 5 }),
+    sliderCell("visitor_speed", "Besucher: Normal", { step: 5 }),
+    sliderCell("speed_turbo", "Besucher: Turbo", { step: 5 }),
     sliderCell("auto_speed", "Auto-Lauf", { step: 10 }),
     sliderCell("approach_speed", "Anfahrt und Rückzug", { step: 10 }),
   ], "Die harten Obergrenzen stehen in config.toml und lassen sich hier nicht überschreiten.").node);
@@ -827,6 +851,8 @@ sections.game = { title: "Spiel", build(root) {
       { value: "z0", label: "z0" }, { value: "z1", label: "z1" }, { value: "z5", label: "z5" }]),
     stepperCell("wall_tolerance", "Wandtoleranz", { step: 0.5, digits: 1,
       sub: "Abstand zur Wand. Negativ = so viele mm darf der Stift in die Wand drücken" }),
+    choiceCell("wall_abort", "Wanderkennung", [{ value: "on", label: "An" }, { value: "off", label: "Aus" }],
+      "Aus: Kein Lauf wird wegen der Wand abgebrochen. Die virtuellen Wände bleiben."),
     stepperCell("wall_abort_depth", "Abbruch bei Wandtiefe", { step: 0.5, digits: 1,
       sub: "Lauf endet, wenn der Stift so tief in der Wand ist. 0 = aus" }),
     stepperCell("auto_extra_margin", "Reserve im Auto-Lauf", { step: 0.5, digits: 1 }),

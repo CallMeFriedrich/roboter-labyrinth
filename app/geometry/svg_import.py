@@ -37,6 +37,8 @@ class LabyrinthGeometry:
     # of a line or rectangle drawn across the corridor.
     markers: dict[str, tuple[tuple[float, float], tuple[float, float]]] = field(default_factory=dict)
     marker_paths: list[str] = field(default_factory=list)  # SVG path data (preview only)
+    logo: list[str] = field(default_factory=list)          # group "Gravur_…Logo…" for the visitor screen
+    logo_bounds: tuple[float, float, float, float] | None = None
 
     @property
     def islands(self) -> list[Polygon]:
@@ -100,6 +102,8 @@ def _walk(node, group_id: str, cut: list, engraving: list, markers: dict | None 
             cut.append(node)
         elif group_id.startswith("Gravur"):
             engraving.append(node)
+            if "logo" in group_id.lower():
+                node.values["_logo"] = True
         elif markers is not None and group_id.startswith("Startlinie"):
             markers.setdefault("start", []).append(node)
         elif markers is not None and group_id.startswith("Ziellinie"):
@@ -242,13 +246,10 @@ def parse_svg(text: str) -> LabyrinthGeometry:
                 break
 
     engraving = [Path(shape).d() for shape in engraving_shapes]
-    bounds = None
-    for shape in engraving_shapes:
-        box = Path(shape).bbox()
-        if box is None:
-            continue
-        bounds = box if bounds is None else (min(bounds[0], box[0]), min(bounds[1], box[1]),
-                                             max(bounds[2], box[2]), max(bounds[3], box[3]))
+    bounds = _bounds(engraving_shapes)
+    logo_shapes = [s for s in engraving_shapes if s.values.get("_logo")] or engraving_shapes
+    logo = [Path(shape).d() for shape in logo_shapes]
+    logo_bounds = _bounds(logo_shapes)
     markers = {}
     for which, shapes in marker_shapes.items():
         axis = _marker_axis(shapes)
@@ -258,8 +259,21 @@ def parse_svg(text: str) -> LabyrinthGeometry:
         else:
             markers[which] = axis
     marker_paths = [Path(shape).d() for shapes in marker_shapes.values() for shape in shapes]
-    return LabyrinthGeometry(width, height, channel, holes, engraving, bounds, warnings,
-                             markers, marker_paths)
+    geometry = LabyrinthGeometry(width, height, channel, holes, engraving, bounds, warnings,
+                                 markers, marker_paths)
+    geometry.logo, geometry.logo_bounds = logo, logo_bounds
+    return geometry
+
+
+def _bounds(shapes) -> tuple[float, float, float, float] | None:
+    bounds = None
+    for shape in shapes:
+        box = Path(shape).bbox()
+        if box is None:
+            continue
+        bounds = box if bounds is None else (min(bounds[0], box[0]), min(bounds[1], box[1]),
+                                             max(bounds[2], box[2]), max(bounds[3], box[3]))
+    return bounds
 
 
 def _sort_holes(holes: list[tuple[float, float]]) -> list[tuple[float, float]]:

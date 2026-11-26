@@ -9,6 +9,7 @@ from ..db import Database
 NAME_MAX = 20
 YEAR_MIN = 1920
 TOP_N = 10
+SPEED_MODES = ("slow", "normal", "turbo")     # every speed mode has its own board
 
 
 class EntryError(ValueError):
@@ -45,21 +46,27 @@ class Leaderboard:
     def __init__(self, db: Database):
         self._db = db
 
-    def top(self, labyrinth_id: int | None) -> list[dict]:
+    def top(self, labyrinth_id: int | None, speed_mode: str = "normal") -> list[dict]:
         if labyrinth_id is None:
             return []
-        rows = self._db.top_runs(labyrinth_id, TOP_N)
+        rows = self._db.top_runs(labyrinth_id, TOP_N, speed_mode)
         return [{"rank": i + 1, "run_id": r["id"], "name": r["name"], "birth_year": r["birth_year"],
                  "time_ms": r["time_ms"]} for i, r in enumerate(rows)]
 
-    def add_finished(self, labyrinth_id: int, name: str, birth_year: int, time_ms: int) -> dict:
-        run_id = self._db.add_run(labyrinth_id, name, birth_year, time_ms, "finished")
+    def boards(self, labyrinth_id: int | None) -> dict[str, list[dict]]:
+        """Top 10 of every speed mode."""
+        return {mode: self.top(labyrinth_id, mode) for mode in SPEED_MODES}
+
+    def add_finished(self, labyrinth_id: int, name: str, birth_year: int, time_ms: int,
+                     speed_mode: str = "normal") -> dict:
+        run_id = self._db.add_run(labyrinth_id, name, birth_year, time_ms, "finished", speed_mode)
         rank, total = self._db.placement(labyrinth_id, run_id)
         return {"run_id": run_id, "name": name, "birth_year": birth_year, "time_ms": time_ms,
-                "rank": rank, "total": total, "new_best": rank == 1}
+                "rank": rank, "total": total, "new_best": rank == 1, "speed_mode": speed_mode}
 
-    def add_aborted(self, labyrinth_id: int, name: str, birth_year: int) -> None:
-        self._db.add_run(labyrinth_id, name, birth_year, None, "aborted")
+    def add_aborted(self, labyrinth_id: int, name: str, birth_year: int,
+                    speed_mode: str = "normal") -> None:
+        self._db.add_run(labyrinth_id, name, birth_year, None, "aborted", speed_mode)
 
     def robot_best(self, labyrinth_id: int | None) -> int | None:
         return self._db.best_robot_ms(labyrinth_id) if labyrinth_id is not None else None

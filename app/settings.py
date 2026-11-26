@@ -115,15 +115,18 @@ class ChoiceDef:
 
 
 SETTING_DEFS: dict[str, NumberDef | ChoiceDef] = {
-    "visitor_speed": NumberDef(50, 10, 150, unit="mm/s"),
+    "visitor_speed": NumberDef(50, 10, 150, unit="mm/s"),        # visitor mode "Normal"
+    "speed_slow": NumberDef(25, 10, 150, unit="mm/s"),           # visitor mode "Langsam"
+    "speed_turbo": NumberDef(100, 10, 150, unit="mm/s"),         # visitor mode "Turbo"
     "auto_speed": NumberDef(250, 50, 1000, unit="mm/s"),
     "approach_speed": NumberDef(100, 20, 300, unit="mm/s"),
     "jog_rate_hz": NumberDef(25, 10, 50, unit="Hz"),
     "jog_zone": ChoiceDef("z1", ("z0", "z1", "z5")),
     "pin_diameter": NumberDef(8, 1, 14, unit="mm"),
-    "wall_tolerance": NumberDef(1.0, -10, 3, unit="mm"),
+    "wall_tolerance": NumberDef(1.0, -30, 10, unit="mm"),   # shortcuts are refused per labyrinth
     # The run ends when the pen edge is this deep in a wall (commanded position). 0 = off.
-    "wall_abort_depth": NumberDef(0, 0, 20, unit="mm"),
+    "wall_abort_depth": NumberDef(0, 0, 50, unit="mm"),
+    "wall_abort": ChoiceDef("on", ("on", "off")),                # wall detection switched on/off
     "auto_extra_margin": NumberDef(1.5, 0, 5, unit="mm"),
     "insert_depth": NumberDef(5, 0, 20, unit="mm"),
     "retract_distance": NumberDef(30, 10, 100, unit="mm"),

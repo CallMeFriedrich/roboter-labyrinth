@@ -17,6 +17,7 @@ from shapely.geometry import Point, Polygon
 
 from ..db import Database
 from ..geometry import frames
+from ..geometry.channel import Channel
 from ..geometry.frames import Frame
 from ..geometry.labyrinth import LabyrinthRuntime
 from ..geometry.lines import gate_from_taps, orient, suggest_gate
@@ -41,6 +42,8 @@ IDLE_ONLY_SETTINGS = GEOMETRY_SETTINGS | {"driver", "viewer_side", "tool_roll_de
 SEED_SVG = ROOT / "tests" / "data" / "Labyrinth_Deckplatte_Entwurf1.svg"
 ORIENTATION_TOLERANCE_DEG = 1.0   # head orientation may differ this much between holes
 HOLE_APPROACH_CLEARANCE = 20.0    # mm in front of a predicted hole: the pen never hits the plate
+SPEED_MODES = {"slow": "speed_slow", "normal": "visitor_speed", "turbo": "speed_turbo"}
+WALL_HOLD_S = 5.0                # after touching the wall the robot stands still this long
 WALL_ABORT_SLACK = 0.3          # mm: the slide along the limit counts as reaching it
 HOLE_NEAR_CLEARANCE = 2.0         # "Näher ran": stop this far in front, the rest by hand
 
@@ -80,6 +83,8 @@ class GameEngine:
         self.auto_request_at: float | None = None
         self.message = ""                       # last problem, shown in the admin panel
         self.notice: str | None = None          # short visitor message while the robot goes back
+        self.speed_mode = "normal"              # visitor choice: slow | normal | turbo
+        self.wall_hit: dict | None = None       # {"time_ms", "depth"} while a wall touch is shown
         self.cycle_ms = 0.0
         self.paused = False                     # admin hold: visitors may not start new runs
 
@@ -308,6 +313,25 @@ class GameEngine:
         self._lab_cache.pop(labyrinth_id, None)
 
     # ================================================================ settings
+    def _check_no_shortcut(self, values: dict[str, Any]) -> None:
+        """A negative tolerance must never let the pen drive through a wall of the active labyrinth."""
+        pin = values.get("pin_diameter", self.settings["pin_diameter"])
+        tol = values.get("wall_tolerance", self.settings["wall_tolerance"])
+        if not isinstance(pin, (int, float)) or not isinstance(tol, (int, float)) or tol >= 0:
+            return
+        channel = self.lab.geometry.channel
+        try:
+            bridged = Channel(channel, float(pin), float(tol)).bridged_walls()
+        except ValueError:
+            return                                   # reported by the normal validation
+        if not bridged:
+            return
+        lowest = 0.0
+        while lowest - 0.5 >= tol and not Channel(channel, float(pin), lowest - 0.5).bridged_walls():
+            lowest -= 0.5
+        raise GameError(f"Bei {tol:g} mm könnte der Stift durch eine Wand abkürzen. "
+                        f"Bei diesem Labyrinth geht höchstens {lowest:g} mm.")
+
     async def patch_settings(self, values: dict[str, Any]) -> None:
         if not isinstance(values, dict) or not values:
             raise GameError("Keine Einstellungen übergeben.")
@@ -316,6 +340,8 @@ class GameEngine:
             self._require_idle()
             if self._admin_lock.locked():
                 raise GameError("Der Roboter führt gerade einen Befehl aus.")
+        if changed & {"wall_tolerance", "pin_diameter"} and self.lab is not None:
+            self._check_no_shortcut(values)
         try:
             self.settings.patch(values)
         except ValueError as exc:
@@ -475,12 +501,27 @@ class GameEngine:
         reason = self.why_not()
         if reason is not None:
             raise GameError(reason)
-        self.run = {"kind": "visitor", "name": name, "birth_year": birth_year}
+        self.run = {"kind": "visitor", "name": name, "birth_year": birth_year, "speed_mode": self.speed_mode}
         self.result = self.auto_result = None
         self.timer = RunTimer(self.lab.start_gate, self.lab.finish_gate)
         self.keys.clear()
         self.sm.to(S.MOVING_TO_START)
         self._run_task = asyncio.create_task(self._guarded(self._visitor_run), name="visitor-run")
+
+    def speeds(self) -> dict[str, float]:
+        return {mode: float(self.settings[key]) for mode, key in SPEED_MODES.items()}
+
+    def visitor_speed(self) -> float:
+        mode = self.run.get("speed_mode", "normal") if self.run else self.speed_mode
+        return float(self.settings[SPEED_MODES.get(mode, "visitor_speed")])
+
+    def set_speed_mode(self, mode: Any) -> None:
+        if mode not in SPEED_MODES:
+            raise GameError("Unbekannte Geschwindigkeit.")
+        if self.sm.state != S.IDLE:
+            raise GameError("Die Geschwindigkeit lässt sich nur vor dem Start wählen.")
+        self.speed_mode = mode
+        self.notify()
 
     def _stop_jog(self) -> None:
         if self._jog is not None:
@@ -512,19 +553,21 @@ class GameEngine:
                 jog.stop()
                 finished.set()
             self.cycle_ms = jog.cycle_ms
-            limit = self.settings["wall_abort_depth"]
+            limit = self.settings["wall_abort_depth"] if self.settings["wall_abort"] == "on" else 0
             if limit > 0 and not finished.is_set() and not wall_hit:
                 depth = lab.channel.wall_depth(p1)
                 if depth >= limit - WALL_ABORT_SLACK:
                     wall_hit.append(depth)
                     jog.stop()
+                    if timer.running:
+                        timer.finish_now(t1_ns)          # the clock stops at the touch
 
         async def move(p) -> None:
-            await self.robot.move_plate(p[0], p[1], z, self.settings["visitor_speed"],
+            await self.robot.move_plate(p[0], p[1], z, self.visitor_speed(),
                                         self.settings["jog_zone"], "visitor")
 
         jog = JogLoop(start=start, keys=self.keys.active, constrain=lab.channel.constrain, move=move,
-                      on_segment=on_segment, speed=lambda: self.settings["visitor_speed"],
+                      on_segment=on_segment, speed=self.visitor_speed,
                       rate_hz=lambda: self.settings["jog_rate_hz"])
         self._jog = jog
         jog_task = asyncio.create_task(jog.run(), name="jog")
@@ -543,7 +586,9 @@ class GameEngine:
             raise GameError("Die Steuerung wurde unerwartet beendet.")
 
         self.keys.clear()
-        self.result = self.board.add_finished(lab.id, run["name"], run["birth_year"], timer.time_ms)
+        self.speed_mode = "normal"              # every new visitor starts on "Normal" again
+        self.result = self.board.add_finished(lab.id, run["name"], run["birth_year"], timer.time_ms,
+                                              run.get("speed_mode", "normal"))
         self.sm.to(S.FINISHED)
         shown_since = time.monotonic()
         await self.hub.send_public({"type": "result", **self.result})
@@ -555,23 +600,25 @@ class GameEngine:
         self._end_run()
 
     async def _wall_out(self, run: dict, depth: float) -> None:
-        """Pen too deep in a wall: the run is over, no time, back home."""
-        log.info("Lauf von %s beendet: %.1f mm in der Wand", run["name"], depth)
+        """Pen too deep in a wall: time stops, the robot stays where it is for a moment, then home."""
+        time_ms = self.timer.elapsed_ms() if self.timer else 0
+        log.info("Lauf von %s beendet: %.1f mm in der Wand nach %d ms", run["name"], depth, time_ms)
         self.keys.clear()
         if self.lab is not None:
-            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"])
-        self.notice = "Zu tief in der Wand – der Lauf ist vorbei."
+            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
+                                   run.get("speed_mode", "normal"))
+        self.wall_hit = {"time_ms": time_ms, "depth": round(depth, 1)}
+        self.notice = "Wand berührt – der Roboter bleibt kurz stehen."
         self.sm.to(S.ABORTING)
-        shown_since = time.monotonic()
+        await asyncio.sleep(WALL_HOLD_S)            # everybody can see where it touched
+        self.notice = "Wand berührt – der Roboter fährt zurück …"
         self.sm.to(S.RETURNING_HOME)
         await self.robot.go_home()
-        rest = self.settings["result_display_s"] - (time.monotonic() - shown_since)
-        if rest > 0:
-            await asyncio.sleep(rest)
         self._end_run()
 
     def _end_run(self) -> None:
         self.notice = None
+        self.wall_hit = None
         self.run = self.timer = self.result = self.auto_result = None
         self.sm.to(S.IDLE)
         self._refresh_idle()
@@ -599,7 +646,8 @@ class GameEngine:
         if self.sm.state != S.ABORTING:       # failed in the meantime
             return
         if run is not None and run["kind"] == "visitor" and self.lab is not None:
-            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"])
+            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
+                                   run.get("speed_mode", "normal"))
         self.run = self.timer = self.countdown_end = None
         self._run_task = asyncio.create_task(self._guarded(self._return_home), name="return-home")
 
@@ -1038,17 +1086,22 @@ class GameEngine:
                    "elapsed_ms": self.timer.elapsed_ms(now_ns) if self.timer else 0}
         position = self.robot.live_position() if self.robot.frame_mode == "plate" else None
         labyrinth_id = self.lab.id if self.lab else None
+        shown_mode = self.run.get("speed_mode", "normal") if self.run else self.speed_mode
         return {
             "type": "state", "state": state.value, "server_ms": now_ns // 1_000_000, "run": run,
             "countdown_ms": (max(0, round((self.countdown_end - time.monotonic()) * 1000))
                              if self.countdown_end is not None and state == S.COUNTDOWN else None),
             "robot": {"connected": self.robot.connected, "driver": self.robot.driver.name,
                       "pos": [round(position[0], 2), round(position[1], 2)] if position else None},
-            "leaderboard": self.board.top(labyrinth_id),
+            "leaderboard": self.board.top(labyrinth_id, shown_mode),
+            "boards": self.board.boards(labyrinth_id),
             "robot_best_ms": self.board.robot_best(labyrinth_id),
             "auto_request": ({"age_ms": round((time.monotonic() - self.auto_request_at) * 1000)}
                              if self.auto_request_at is not None and state == S.AUTO_REQUESTED else None),
             "result": self.result, "auto_result": self.auto_result, "notice": self.notice,
+            "wall_hit": self.wall_hit,
+            "speed_mode": self.run.get("speed_mode", "normal") if self.run else self.speed_mode,
+            "speeds": self.speeds(),
             "can_start": self.why_not() is None, "labyrinth_rev": self.lab_rev,
         }
 

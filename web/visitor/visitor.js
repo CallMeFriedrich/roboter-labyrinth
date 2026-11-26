@@ -9,6 +9,19 @@ const KEY_MAP = {
   KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d",
   ArrowUp: "w", ArrowLeft: "a", ArrowDown: "s", ArrowRight: "d",
 };
+// Fallback by character, for keyboards whose arrow/letter codes differ.
+const CHAR_MAP = { w: "w", a: "a", s: "s", d: "d", arrowup: "w", arrowleft: "a", arrowdown: "s", arrowright: "d",
+                   up: "w", left: "a", down: "s", right: "d" };
+const keyOf = (event) => KEY_MAP[event.code] || CHAR_MAP[(event.key || "").toLowerCase()];
+const SPEED_LABEL = { slow: "Langsam", normal: "Normal", turbo: "Turbo" };
+const SPEED_ORDER = ["slow", "normal", "turbo"];
+const RESULT_IN = { slow: "im Schneckentempo", normal: "im normalen Tempo", turbo: "im Turbo" };
+const EMPTY_IN = { slow: "Noch keine Zeiten im Schneckentempo.", normal: "Noch keine Zeiten im normalen Tempo.",
+                   turbo: "Noch keine Zeiten im Turbo." };
+const BOARD_ROTATE_MS = 8000;      // idle screen: the list changes speed every 8 s
+const BOARD_QUIET_MS = 20_000;     // ... but only after 20 s without anybody at the screen
+const SPEED_KEYS = { Digit1: "slow", Digit2: "normal", Digit3: "turbo",
+                     Numpad1: "slow", Numpad2: "normal", Numpad3: "turbo" };
 const JOG_STATES = new Set(["ARMED", "RUNNING"]);
 const PAUSE_STATES = new Set(["DISCONNECTED", "ERROR"]);
 const HEARTBEAT_MS = 100;
@@ -25,6 +38,10 @@ let giveUpTimer = 0;
 let formIdleTimer = 0;
 let countdownTimer = 0;
 let countdownShown = null;
+let boardMode = "normal";    // speed whose top 10 is shown in the list
+let rotateMode = "normal";   // idle rotation position
+let lastTouch = 0;           // performance.now() of the last visitor input
+let lastBoardMode = null;
 
 // ------------------------------------------------------------------- scaling
 function fit() {
@@ -35,6 +52,33 @@ window.addEventListener("resize", fit);
 fit();
 
 // ---------------------------------------------------------------------- logo
+// The engraving is one-coloured; on screen the three corner marks get the school colours
+// (measured from the official logo): petrol top left, green top right, grey bottom left.
+const LOGO_MARKS = [
+  { colour: "#0082a3", box: [0, 0, 0.09, 0.25] },
+  { colour: "#96c11a", box: [0.09, 0, 0.19, 0.25] },
+  { colour: "#838383", box: [0, 0.27, 0.09, 0.55] },
+];
+
+function colourLogo(svg, paths, bounds) {
+  const [x0, y0, x1, y1] = bounds;
+  const w = x1 - x0, h = y1 - y0;
+  const ns = "http://www.w3.org/2000/svg";
+  for (const d of paths) {
+    for (const sub of d.match(/[Mm][^Mm]*/g) || []) {
+      const piece = document.createElementNS(ns, "path");
+      piece.setAttribute("d", sub);
+      svg.append(piece);
+      let b;
+      try { b = piece.getBBox(); } catch { piece.remove(); continue; }
+      const r = [(b.x - x0) / w, (b.y - y0) / h, (b.x + b.width - x0) / w, (b.y + b.height - y0) / h];
+      const mark = LOGO_MARKS.find(({ box }) =>
+        r[0] >= box[0] - 0.005 && r[1] >= box[1] - 0.005 && r[2] <= box[2] && r[3] <= box[3]);
+      if (mark) piece.style.fill = mark.colour;    // solid shapes: drawn over the white logo
+      else piece.remove();
+    }
+  }
+}
 async function loadLogo() {
   try {
     const data = await (await fetch("/api/logo")).json();
@@ -50,6 +94,7 @@ async function loadLogo() {
       svg.append(path);
     }
     $("logo").replaceChildren(svg);
+    colourLogo(svg, data.paths, data.bounds);
   } catch { /* the logo is decoration; the screen works without it */ }
 }
 
@@ -143,7 +188,7 @@ function statusText(s) {
     case "ARMED": return "Die Zeit läuft ab der Startlinie.";
     case "RUNNING": return s.run ? s.run.name : "";
     case "AUTO_REQUESTED": return "Ein Betreuer gibt den Roboter gleich frei …";
-    case "AUTO_RUN": return "Der Roboter fährt den kürzesten Weg.";
+    case "AUTO_RUN": return "Der Roboter fährt ganz allein den kürzesten Weg.";
     case "FINISHED": return s.result ? s.result.name : "";
     case "ABORTING": return s.notice || "Der Roboter fährt zurück …";
     case "RETURNING_HOME":
@@ -171,9 +216,19 @@ function render(previous) {
 
   // Timer
   const timer = $("timer");
-  const finalMs = state.result?.time_ms ?? state.auto_result?.time_ms ?? null;
+  const wall = state.wall_hit;
+  const finalMs = state.result?.time_ms ?? state.auto_result?.time_ms ?? wall?.time_ms ?? null;
   if (timerBase === null) setTimer(finalMs ?? (state.run ? state.run.elapsed_ms : 0));
-  timer.classList.toggle("is-final", finalMs !== null);
+  timer.classList.toggle("is-final", finalMs !== null && !wall);
+  timer.classList.toggle("is-wall", Boolean(wall));
+  if (wall && timerBase === null) setTimer(wall.time_ms);
+  if (wall && !(previous && previous.wall_hit)) {
+    stage.classList.remove("is-wall-flash");
+    void stage.offsetWidth;                      // restart the flash
+    stage.classList.add("is-wall-flash");
+  }
+  stage.classList.toggle("is-wall", Boolean(wall));
+  $("wall").hidden = !wall;
   timer.classList.toggle("is-dim", finalMs === null && !(state.run && state.run.running));
 
   // Countdown overlay
@@ -194,9 +249,11 @@ function render(previous) {
   $("waiting").hidden = s !== "AUTO_REQUESTED";
   $("start").disabled = !state.can_start;
   $("request-auto").disabled = !state.can_start;
+  renderSpeed(idle, jog);
   if (showResult) {
     $("result-title").textContent = state.result.new_best ? "Neue Bestzeit!" : "Geschafft.";
-    $("result-rank").textContent = `Platz ${state.result.rank} von ${state.result.total}`;
+    const where = RESULT_IN[state.result.speed_mode] || "";
+    $("result-rank").textContent = `Platz ${state.result.rank} von ${state.result.total} ${where}`.trim();
   }
   if (!jog) { releaseKeys(); resetGiveUp(); }
   if (idle && previous && previous.state !== "IDLE") {
@@ -206,6 +263,44 @@ function render(previous) {
 
   $("robot-best").textContent = formatTime(state.robot_best_ms);
   renderBoard();
+}
+
+// -------------------------------------------------------------------- speed
+function renderSpeed(idle, jog) {
+  const mode = state.speed_mode || "normal";
+  const speeds = state.speeds || {};
+  for (const button of document.querySelectorAll(".speed-option")) {
+    const on = button.dataset.mode === mode;
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    button.disabled = !idle || !control;
+  }
+  for (const node of document.querySelectorAll("[data-speed]")) {
+    const v = speeds[node.dataset.speed];
+    node.textContent = v ? `${Math.round(v)} mm/s` : "";
+  }
+  // The robot's own run has its own look; turbo belongs to the visitor.
+  const robotDriving = ["AUTO_REQUESTED", "AUTO_RUN"].includes(state.state) || Boolean(state.auto_result);
+  const look = robotDriving || state.wall_hit ? "normal" : mode;
+  stage.classList.toggle("is-turbo", look === "turbo");
+  stage.classList.toggle("is-slow", look === "slow");
+  const tag = $("mode-tag");
+  tag.hidden = idle || look === "normal";
+  tag.textContent = SPEED_LABEL[look] || "";
+  tag.dataset.mode = look;
+  $("drive-speed").textContent = jog ? `Tempo: ${SPEED_LABEL[mode] || "Normal"}` : "";
+}
+
+function chooseSpeed(mode) {
+  if (!state || state.state !== "IDLE" || !control || !SPEED_LABEL[mode]) return;
+  if (state.speed_mode === mode) return;
+  socket.send({ type: "speed", mode });
+  touch();
+  armFormIdle();
+}
+
+for (const button of document.querySelectorAll(".speed-option")) {
+  button.addEventListener("click", () => { chooseSpeed(button.dataset.mode); button.blur(); });
 }
 
 // -------------------------------------------------------------- leaderboard
@@ -218,13 +313,75 @@ function rowNode(entry, isNew) {
     el("span", { class: "time num", text: formatTime(entry.time_ms) }));
 }
 
+function touch() { lastTouch = performance.now(); }
+
+// Which speed the list shows: the visitor's own speed while somebody is at the screen,
+// otherwise it cycles through all three like a scoreboard.
+function shownMode() {
+  const quiet = state.state === "IDLE" && !state.result && performance.now() - lastTouch > BOARD_QUIET_MS;
+  if (quiet) return rotateMode;
+  rotateMode = state.result?.speed_mode || state.speed_mode || "normal";
+  return rotateMode;
+}
+
+setInterval(() => {
+  if (!state || state.state !== "IDLE" || state.result || performance.now() - lastTouch <= BOARD_QUIET_MS) return;
+  rotateMode = SPEED_ORDER[(SPEED_ORDER.indexOf(rotateMode) + 1) % SPEED_ORDER.length];
+  renderBoard();
+}, BOARD_ROTATE_MS);
+
+function renderRecords(boards, mode) {
+  for (const button of document.querySelectorAll(".record")) {
+    const m = button.dataset.mode;
+    const best = (boards[m] || [])[0];
+    const on = m === mode;
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    button.querySelector("[data-record]").textContent = best ? formatTime(best.time_ms) : "–:––.––";
+    button.querySelector("[data-record-name]").textContent = best ? best.name : "noch frei";
+    button.classList.toggle("is-empty", !best);
+  }
+  $("board-mode").textContent = SPEED_LABEL[mode] || "";
+  $("board-mode").dataset.mode = mode;
+}
+
+// Tapping a tile only changes the list (the speed itself is chosen at the start form).
+for (const button of document.querySelectorAll(".record")) {
+  button.addEventListener("click", () => {
+    if (!state || state.state !== "IDLE") return;
+    touch();
+    rotateMode = button.dataset.mode;
+    lastTouch = performance.now() - BOARD_QUIET_MS - 1;   // show it right away, then keep rotating
+    renderBoard();
+    button.blur();
+  });
+}
+
 function renderBoard() {
   const board = $("board");
-  const entries = state.leaderboard;
-  const resultId = state.result ? state.result.run_id : null;
-  const signature = JSON.stringify(entries.map((e) => [e.run_id, e.rank])) + "|" + resultId;
+  const boards = state.boards || { normal: state.leaderboard || [] };
+  const mode = shownMode();
+  boardMode = mode;
+  const entries = boards[mode] || [];
+  renderRecords(boards, mode);
+  const resultId = state.result && state.result.speed_mode === mode ? state.result.run_id : null;
+  const signature = mode + "|" + JSON.stringify(entries.map((e) => [e.run_id, e.rank])) + "|" + resultId;
   if (board.dataset.signature === signature) return;
   board.dataset.signature = signature;
+  $("board-empty").textContent = `${EMPTY_IN[mode] || "Noch keine Zeiten."} Sei die oder der Erste.`;
+
+  // Another speed: cross-fade the whole list instead of moving rows around.
+  if (lastBoardMode !== null && lastBoardMode !== mode) {
+    lastBoardMode = mode;
+    board.replaceChildren(...entries.map((e) => rowNode(e, false)));
+    $("board-empty").hidden = entries.length > 0;
+    for (const node of [board, $("board-empty")]) {
+      node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)" });
+    }
+    $("own-row").hidden = true;
+    return;
+  }
+  lastBoardMode = mode;
 
   // FLIP: remember where the rows were, re-render, then animate from the old places.
   const before = new Map();
@@ -249,7 +406,7 @@ function renderBoard() {
   // Own result outside the top 10: its own line under the list.
   const own = $("own-row");
   const inTop = entries.some((e) => e.run_id === resultId);
-  if (state.result && !inTop) {
+  if (resultId !== null && !inTop) {
     own.replaceChildren(rowNode(state.result, state.result.run_id === highlight));
     own.hidden = false;
   } else {
@@ -269,10 +426,10 @@ function clearForm() {
 
 function armFormIdle() {
   clearTimeout(formIdleTimer);
-  formIdleTimer = setTimeout(clearForm, FORM_IDLE_MS);
+  formIdleTimer = setTimeout(() => { clearForm(); chooseSpeed("normal"); }, FORM_IDLE_MS);
 }
 
-$("form").addEventListener("input", () => { showFormError(""); armFormIdle(); });
+$("form").addEventListener("input", () => { showFormError(""); touch(); armFormIdle(); });
 $("year").addEventListener("input", (event) => {
   event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
 });
@@ -338,7 +495,14 @@ function releaseKeys() {
 function canSteer() { return control && state && JOG_STATES.has(state.state); }
 
 window.addEventListener("keydown", (event) => {
-  const key = KEY_MAP[event.code];
+  // 1 / 2 / 3 choose the speed before the start (not while typing the birth year).
+  const speed = SPEED_KEYS[event.code];
+  if (speed && state && state.state === "IDLE" && !(event.target instanceof HTMLInputElement)) {
+    event.preventDefault();
+    chooseSpeed(speed);
+    return;
+  }
+  const key = keyOf(event);
   if (!key || !canSteer()) return;
   event.preventDefault();
   if (event.repeat || down.has(key)) return;   // only state changes are sent
@@ -348,7 +512,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
-  const key = KEY_MAP[event.code];
+  const key = keyOf(event);
   if (!key) return;
   if (canSteer()) event.preventDefault();
   if (!down.delete(key)) return;

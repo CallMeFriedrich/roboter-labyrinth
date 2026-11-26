@@ -167,7 +167,8 @@ def test_sorting_placement_and_deleted_entries():
     assert [e["name"] for e in top[:2]] == ["P1", "P3"]          # tie: the earlier run is ahead
     assert [e["rank"] for e in top] == list(range(1, 11))
     assert results[0] == {"run_id": results[0]["run_id"], "name": "P0", "birth_year": 2000,
-                          "time_ms": 50_000, "rank": 1, "total": 1, "new_best": True}
+                          "time_ms": 50_000, "rank": 1, "total": 1, "new_best": True,
+                          "speed_mode": "normal"}
     assert (results[1]["rank"], results[1]["new_best"]) == (1, True)
     assert (results[3]["rank"], results[3]["total"], results[3]["new_best"]) == (2, 4, False)
     assert (results[-1]["rank"], results[-1]["total"]) == (14, 14)   # "Platz 14 von 14"
@@ -203,7 +204,7 @@ def test_settings_defaults_limits_and_persistence():
     assert store.set("visitor_speed", 80) == 80.0
     assert store.set("countdown_s", 2.0) == 2 and isinstance(store["countdown_s"], int)
     for key, value in [("visitor_speed", 151), ("visitor_speed", 9), ("auto_speed", 1001),
-                       ("wall_tolerance", 3.5), ("jog_zone", "z10"), ("driver", "egm"),
+                       ("wall_tolerance", 10.5), ("wall_tolerance", -30.5), ("wall_abort_depth", 51), ("jog_zone", "z10"), ("driver", "egm"),
                        ("visitor_speed", "fast"), ("visitor_speed", True), ("unknown", 1)]:
         with pytest.raises(ValueError):
             store.set(key, value)

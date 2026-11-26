@@ -91,8 +91,9 @@ async def logo(request: Request) -> dict:
     if engine.lab is None or not engine.lab.geometry.engraving:
         return {"paths": [], "bounds": None}
     geometry = engine.lab.geometry
-    bounds = [float(v) for v in geometry.engraving_bounds] if geometry.engraving_bounds else None
-    return {"paths": geometry.engraving, "bounds": bounds}
+    paths = geometry.logo or geometry.engraving
+    box = geometry.logo_bounds if geometry.logo else geometry.engraving_bounds
+    return {"paths": paths, "bounds": [float(v) for v in box] if box else None}
 
 
 # ------------------------------------------------------------------ commands

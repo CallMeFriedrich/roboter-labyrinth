@@ -20,6 +20,7 @@
       <section class="left" aria-live="polite">
         <p class="status">
           <span id="tag" class="tag" hidden>Roboter</span>
+          <span id="mode-tag" class="tag tag-mode" hidden></span>
           <span id="status"></span>
         </p>
 
@@ -32,6 +33,26 @@
 
         <div class="context">
           <form id="form" class="form" autocomplete="off" novalidate>
+            <div class="speed" role="group" aria-label="Tempo">
+              <span class="field-label">Tempo</span>
+              <div class="speed-options">
+                <button type="button" class="speed-option speed-slow" data-mode="slow" aria-pressed="false">
+                  <svg class="speed-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-slow"></use></svg>
+                  <span class="speed-label">Langsam</span>
+                  <span class="speed-meta num"><kbd>1</kbd><span data-speed="slow"></span></span>
+                </button>
+                <button type="button" class="speed-option speed-normal" data-mode="normal" aria-pressed="false">
+                  <svg class="speed-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-normal"></use></svg>
+                  <span class="speed-label">Normal</span>
+                  <span class="speed-meta num"><kbd>2</kbd><span data-speed="normal"></span></span>
+                </button>
+                <button type="button" class="speed-option speed-turbo" data-mode="turbo" aria-pressed="false">
+                  <svg class="speed-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-turbo"></use></svg>
+                  <span class="speed-label">Turbo</span>
+                  <span class="speed-meta num"><kbd>3</kbd><span data-speed="turbo"></span></span>
+                </button>
+              </div>
+            </div>
             <div class="fields">
               <label class="field field-name">
                 <span class="field-label">Name</span>
@@ -46,18 +67,20 @@
               <button id="start" type="submit" class="btn btn-primary btn-visitor">Start</button>
             </div>
             <p id="form-error" class="form-error" role="alert"></p>
-            <button id="request-auto" type="button" class="btn btn-text btn-visitor-text">Roboter fahren lassen</button>
+            <button id="request-auto" type="button" class="btn btn-text btn-visitor-text">Roboter automatisch alleine fahren lassen</button>
+            <p class="auto-hint">Er fährt den kürzesten Weg ganz allein. Schaffst du seine Zeit?</p>
           </form>
 
           <div id="drive" class="drive" hidden>
             <div class="keys" aria-hidden="true">
-              <span class="key key-w" data-key="w">W</span>
-              <span class="key key-a" data-key="a">A</span>
-              <span class="key key-s" data-key="s">S</span>
-              <span class="key key-d" data-key="d">D</span>
+              <span class="key key-w" data-key="w">W<svg class="key-arrow" aria-hidden="true" style="transform:rotate(0deg)"><use href="/static/shared/icons.svg#i-arrow"></use></svg></span>
+              <span class="key key-a" data-key="a">A<svg class="key-arrow" aria-hidden="true" style="transform:rotate(-90deg)"><use href="/static/shared/icons.svg#i-arrow"></use></svg></span>
+              <span class="key key-s" data-key="s">S<svg class="key-arrow" aria-hidden="true" style="transform:rotate(180deg)"><use href="/static/shared/icons.svg#i-arrow"></use></svg></span>
+              <span class="key key-d" data-key="d">D<svg class="key-arrow" aria-hidden="true" style="transform:rotate(90deg)"><use href="/static/shared/icons.svg#i-arrow"></use></svg></span>
             </div>
             <div class="drive-side">
-              <p class="hint">Fahr mit W A S D durchs Labyrinth.</p>
+              <p class="hint">Fahr mit W A S D oder den Pfeiltasten durchs Labyrinth.</p>
+              <p id="drive-speed" class="drive-speed"></p>
               <button id="give-up" type="button" class="btn btn-visitor btn-quiet">Aufgeben</button>
             </div>
           </div>
@@ -65,6 +88,11 @@
           <div id="result" class="result" hidden>
             <p id="result-title" class="result-title">Geschafft.</p>
             <p id="result-rank" class="result-rank num"></p>
+          </div>
+
+          <div id="wall" class="wall" hidden>
+            <p class="wall-title">Wand berührt!</p>
+            <p class="wall-text">Der Lauf ist vorbei. Probier es gleich nochmal – vielleicht etwas langsamer.</p>
           </div>
 
           <div id="waiting" class="waiting" hidden>
@@ -80,9 +108,36 @@
           <span id="robot-best" class="robot-time num">–:––.––</span>
         </section>
 
-        <h2 class="section-title">Bestenliste</h2>
+        <h2 class="section-title">Bestenliste <span id="board-mode" class="board-mode"></span></h2>
+        <!-- Every speed has its own board. The tiles show each record; the list shows one speed. -->
+        <div id="records" class="records">
+          <button type="button" class="record" data-mode="slow" aria-pressed="false">
+            <span class="record-head">
+              <svg class="record-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-slow"></use></svg>
+              <span class="record-label">Langsam</span>
+            </span>
+            <span class="record-time num" data-record="slow">–:––.––</span>
+            <span class="record-name" data-record-name="slow"></span>
+          </button>
+          <button type="button" class="record" data-mode="normal" aria-pressed="false">
+            <span class="record-head">
+              <svg class="record-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-normal"></use></svg>
+              <span class="record-label">Normal</span>
+            </span>
+            <span class="record-time num" data-record="normal">–:––.––</span>
+            <span class="record-name" data-record-name="normal"></span>
+          </button>
+          <button type="button" class="record" data-mode="turbo" aria-pressed="false">
+            <span class="record-head">
+              <svg class="record-icon" aria-hidden="true"><use href="/static/shared/icons.svg#i-speed-turbo"></use></svg>
+              <span class="record-label">Turbo</span>
+            </span>
+            <span class="record-time num" data-record="turbo">–:––.––</span>
+            <span class="record-name" data-record-name="turbo"></span>
+          </button>
+        </div>
         <ol id="board" class="board"></ol>
-        <p id="board-empty" class="board-empty" hidden>Noch keine Zeiten. Sei die oder der Erste.</p>
+        <p id="board-empty" class="board-empty" hidden></p>
         <div id="own-row" class="own-row" hidden></div>
       </aside>
     </main>

@@ -39,14 +39,16 @@ backups = "data/backups"
 # Hard limits [min, max] for the values that can be changed in the admin panel.
 [limits]
 visitor_speed = [10.0, 150.0]
+speed_slow = [10.0, 150.0]
+speed_turbo = [10.0, 150.0]
 auto_speed = [50.0, 1000.0]
 approach_speed = [20.0, 300.0]
 jog_rate_hz = [10.0, 50.0]
 pin_diameter = [1.0, 14.0]
 # Negative tolerance: the pen may go that far into the wall (spring rod bends).
-wall_tolerance = [-10.0, 3.0]
+wall_tolerance = [-30.0, 10.0]
 # The visitor run ends when the pen is this deep in a wall (0 = off).
-wall_abort_depth = [0.0, 20.0]
+wall_abort_depth = [0.0, 50.0]
 auto_extra_margin = [0.0, 5.0]
 insert_depth = [0.0, 20.0]
 retract_distance = [10.0, 100.0]

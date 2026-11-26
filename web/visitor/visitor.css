@@ -15,7 +15,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
 }
 
 .head { height: 48px; flex: none; }
-.logo { height: 48px; color: var(--label-2); }
+.logo { height: 48px; color: var(--label); }
 .logo svg { display: block; height: 100%; width: auto; fill: currentColor; }
 
 .grid {
@@ -170,7 +170,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
 .key-d { grid-column: 3; grid-row: 2; }
 .key.is-down { background: var(--accent); color: var(--on-accent); transform: translateY(2px); box-shadow: none; }
 .drive-side { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-6); }
-.hint { margin: 0; font-size: 28px; line-height: 40px; font-weight: 500; letter-spacing: -0.012em; color: var(--label-2); }
+.hint { margin: 0; max-width: 640px; font-size: 28px; line-height: 40px; font-weight: 500; letter-spacing: -0.012em; color: var(--label-2); }
 
 .result-title { margin: 0; font-size: 64px; line-height: 1.1; font-weight: 600; letter-spacing: -0.022em; }
 .result-rank { margin: var(--s-3) 0 0; font-size: 34px; line-height: 44px; font-weight: 500; letter-spacing: -0.012em; color: var(--label-2); }
@@ -181,7 +181,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
   grid-template-columns: auto 1fr auto;
   align-items: center;
   column-gap: var(--s-4);
-  height: 112px;
+  height: 96px;
   padding: 0 var(--s-8);
   border-radius: var(--r-card);
   background: var(--surface-1);
@@ -191,7 +191,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
 .robot-time { font-size: 44px; font-weight: 600; letter-spacing: -0.022em; }
 
 .section-title {
-  margin: var(--s-12) 0 var(--s-2);
+  margin: var(--s-8) 0 var(--s-3);
   padding: 0 var(--s-8);
   font-size: 15px;
   line-height: 20px;
@@ -201,13 +201,42 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
   color: var(--label-3);
 }
 
+/* Record tiles: one per speed, the shown board is outlined in its colour. */
+.board-mode { margin-left: var(--s-2); color: var(--label-2); }
+.records { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-3); margin-bottom: var(--s-3); }
+.record {
+  --tone: var(--accent);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-width: 0;
+  padding: var(--s-2) var(--s-4);
+  border: 0; border-radius: var(--r-card);
+  background: var(--surface-1);
+  color: var(--label);
+  font: inherit; text-align: left;
+  outline: 2px solid transparent; outline-offset: -2px;
+  cursor: pointer;
+  transition: background-color 200ms var(--ease), outline-color 200ms var(--ease);
+}
+.record[data-mode="normal"] { --tone: #0a84ff; }   /* fixed: the page accent changes with the speed look */
+.record[data-mode="slow"] { --tone: #30d158; }
+.record[data-mode="turbo"] { --tone: #ff453a; }
+.record-head { display: flex; align-items: center; gap: var(--s-2); color: var(--label-2); }
+.record-icon { width: 22px; height: 22px; }
+.record-label { font-size: 17px; line-height: 22px; font-weight: 600; letter-spacing: -0.004em; }
+.record-time { font-size: 34px; line-height: 40px; font-weight: 600; letter-spacing: -0.022em; }
+.record-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 17px; line-height: 22px; color: var(--label-2); }
+.record.is-empty .record-time, .record.is-empty .record-name { color: var(--label-3); }
+.record.is-on { background: var(--surface-2); outline-color: var(--tone); }
+.record.is-on .record-head { color: var(--tone); }
+
 .board { list-style: none; margin: 0; padding: 0; }
 .row {
   position: relative;
   display: grid;
   grid-template-columns: 56px 1fr 96px 176px;
   align-items: center;
-  height: 60px;
+  height: 52px;
   padding: 0 var(--s-8);
   border-radius: var(--r-control);
   font-size: 30px;
@@ -265,3 +294,115 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
 @keyframes fade-in { from { opacity: 0; } }
 
 .stage.is-viewer .form, .stage.is-viewer #give-up, .stage.is-viewer .waiting { display: none; }
+
+/* ---------------------------------------------------------------- speed picker */
+.speed { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-6); }
+.speed-options { display: flex; gap: var(--s-3); }
+.speed-option {
+  position: relative;
+  width: 208px;
+  height: 92px;
+  padding: 0 var(--s-5);
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface-1);
+  color: var(--label-2);
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--s-3);
+  align-content: center;
+  text-align: left;
+  cursor: pointer;
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  transition: background-color var(--t-std) var(--ease), color var(--t-std) var(--ease),
+              outline-color var(--t-std) var(--ease), transform var(--t-fast) var(--ease);
+}
+.speed-option:active:not(:disabled) { transform: scale(0.98); }
+.speed-option:disabled { cursor: default; }
+.speed-icon { grid-row: 1 / span 2; width: 40px; height: 40px; align-self: center; }
+.speed-label { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.012em; }
+.speed-meta { display: flex; align-items: center; gap: var(--s-2); font-size: 15px; line-height: 20px; color: var(--label-3); }
+.speed-meta kbd {
+  min-width: 22px; height: 22px; padding: 0 6px;
+  border-radius: 6px; background: var(--surface-2);
+  font: inherit; font-weight: 600; text-align: center; line-height: 22px; color: var(--label-2);
+}
+.speed-option.is-on { background: var(--surface-2); color: var(--label); outline-color: var(--accent); }
+.speed-option.is-on .speed-icon { color: var(--accent); }
+.speed-turbo.is-on { outline-color: var(--danger); }
+.speed-turbo.is-on .speed-icon { color: var(--danger); }
+
+/* Flush with the button text above (the text button sits at the column edge). */
+.auto-hint { margin: 0; font-size: 18px; line-height: 24px; color: var(--label-3); }
+
+/* Key caps carry the arrow too: W A S D and the arrow keys both steer. */
+.key { flex-direction: column; gap: 2px; font-size: 24px; line-height: 1; }
+.key-arrow { width: 18px; height: 18px; color: var(--label-3); transition: color 80ms var(--ease); }
+.key.is-down .key-arrow { color: var(--on-accent); }
+.drive-speed { margin: 0; font-size: 20px; line-height: 28px; font-weight: 500; color: var(--label-3); }
+
+/* ------------------------------------------------------- speed looks + wall touch
+   A coloured frame around the whole screen with a light spot running around it:
+   red for "Turbo", green for "Langsam". Touching the wall flashes the frame red. */
+@property --frame-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+
+.stage { --frame: 255, 69, 58; --shine: 255, 190, 170; }
+.stage.is-turbo { --accent: #ff453a; }
+.stage.is-slow { --accent: #30d158; --on-accent: #00210a; --frame: 48, 209, 88; --shine: 190, 255, 205; }
+.stage.is-wall { --frame: 255, 69, 58; --shine: 255, 190, 170; }
+
+.tag-mode[data-mode="turbo"] { background: #ff453a; color: #fff; }
+.tag-mode[data-mode="slow"] { background: #30d158; color: #00210a; }
+
+.stage::before, .stage::after {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 32px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 400ms var(--ease);
+}
+/* The frame: a soft rim with a faint inner glow in the mode colour. */
+.stage::before {
+  border: 3px solid rgba(var(--frame), 0.9);
+  box-shadow: inset 0 0 60px rgba(var(--frame), 0.16), 0 0 0 1px rgba(var(--frame), 0.25);
+}
+/* The shimmer: a bright spot running around the frame. */
+.stage::after {
+  padding: 3px;
+  background: conic-gradient(from var(--frame-angle),
+              transparent 0deg, transparent 300deg, rgba(var(--shine), 0.95) 340deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.stage.is-turbo::before, .stage.is-slow::before { opacity: 1; animation: frame-pulse 2.4s ease-in-out infinite; }
+.stage.is-turbo::after { opacity: 1; animation: frame-spin 3.2s linear infinite; }
+.stage.is-slow::after { opacity: 1; animation: frame-spin 7s linear infinite; }      /* the snail is slow */
+.stage.is-turbo .timer:not(.is-dim):not(.is-final) .fraction { color: #ff6961; }
+.stage.is-slow .timer:not(.is-dim):not(.is-final) .fraction { color: #63e383; }
+@keyframes frame-spin { to { --frame-angle: 360deg; } }
+@keyframes frame-pulse {
+  0%, 100% { box-shadow: inset 0 0 60px rgba(var(--frame), 0.14), 0 0 0 1px rgba(var(--frame), 0.25); }
+  50% { box-shadow: inset 0 0 90px rgba(var(--frame), 0.26), 0 0 0 1px rgba(var(--frame), 0.4); }
+}
+
+/* Wall touch: the frame blinks red three times and stays; the time stays red. */
+.stage.is-wall::before { opacity: 1; animation: none; border-width: 6px;
+  box-shadow: inset 0 0 120px rgba(255, 69, 58, 0.3); }
+.stage.is-wall-flash::before { animation: wall-flash 0.45s ease-in-out 3; }
+@keyframes wall-flash { 50% { opacity: 0.15; } }
+.timer.is-wall, .timer.is-wall .fraction { color: var(--danger); }
+.wall-title { margin: 0; font-size: 72px; line-height: 1.1; font-weight: 700; letter-spacing: -0.022em; color: var(--danger); }
+.wall-text { margin: var(--s-3) 0 0; max-width: 760px; font-size: 30px; line-height: 40px; font-weight: 500; color: var(--label-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage::before, .stage::after, .stage.is-wall-flash::before { animation: none !important; }
+}
+
+/* Logo a little larger now that it is scaled to the logo alone. */
+.head { height: 56px; }
+.logo { height: 56px; }
