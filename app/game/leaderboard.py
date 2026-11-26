@@ -65,8 +65,8 @@ class Leaderboard:
                 "rank": rank, "total": total, "new_best": rank == 1, "speed_mode": speed_mode}
 
     def add_aborted(self, labyrinth_id: int, name: str, birth_year: int,
-                    speed_mode: str = "normal") -> None:
-        self._db.add_run(labyrinth_id, name, birth_year, None, "aborted", speed_mode)
+                    speed_mode: str = "normal") -> int:
+        return self._db.add_run(labyrinth_id, name, birth_year, None, "aborted", speed_mode)
 
     def robot_best(self, labyrinth_id: int | None) -> int | None:
         return self._db.best_robot_ms(labyrinth_id) if labyrinth_id is not None else None

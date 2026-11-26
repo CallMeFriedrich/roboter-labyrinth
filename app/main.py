@@ -4,6 +4,7 @@ Start:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
@@ -12,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import shutdown_guard
 from .api import admin_rest, ws_admin, ws_visitor
 from .api.hub import Auth, Hub
 from .db import Database
@@ -59,10 +61,15 @@ def create_app(config: Config | None = None, db: Database | None = None, seed: b
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         await engine.start()
+        shutdown_guard.install()          # Ctrl+C always ends the server, even if a connection hangs
         try:
             yield
         finally:
-            await engine.stop()
+            try:
+                await asyncio.wait_for(engine.stop(), timeout=4)
+            except asyncio.TimeoutError:
+                logging.getLogger("server").warning("Roboter/Spiel haben nicht rechtzeitig gestoppt.")
+            shutdown_guard.disarm()
 
     app = FastAPI(title="Roboter-Labyrinth", lifespan=lifespan, docs_url=None, redoc_url=None,
                   openapi_url=None)
@@ -74,6 +81,10 @@ def create_app(config: Config | None = None, db: Database | None = None, seed: b
     @app.get("/")
     async def visitor_page() -> FileResponse:
         return FileResponse(WEB / "visitor" / "index.html", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/stats")
+    async def stats_page() -> FileResponse:
+        return FileResponse(WEB / "stats" / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/admin")
     async def admin_page() -> FileResponse:

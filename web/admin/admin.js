@@ -2,6 +2,7 @@
 import { connect } from "/static/shared/ws.js";
 import { createMap } from "/static/shared/map.js";
 import { el, formatDateTime, formatNumber, formatTime } from "/static/shared/format.js";
+import { createPlayer, forgetMap, loadMap, loadReplay } from "/static/shared/replay.js";
 
 const $ = (id) => document.getElementById(id);
 const icon = (name) => {
@@ -186,10 +187,58 @@ function modeBadge(mode) {
   return badge;
 }
 
-function runCells(runs, { deletable = false, onDelete } = {}) {
+// ------------------------------------------------------------------ replays
+const END_TEXT = { finished: "Im Ziel.", wall: "Wand berührt.", aborted: "Aufgegeben." };
+
+async function replayReal(run) {
+  if (await confirmSheet({ title: `Lauf von ${run.name} am Roboter wiederholen?`, action: "Roboter fährt", destructive: false,
+    text: "Der Roboter fährt den aufgezeichneten Weg mit dem damaligen Tempo nach – innerhalb der heutigen Wände. "
+      + "Es entsteht kein neuer Eintrag." })) cmd("replay_start", { id: run.id });
+}
+
+/** Virtual replay in a sheet: the map with the pen moving like in the real run. */
+async function replayVirtual(run) {
+  let replay, lab;
+  try { [replay, lab] = await Promise.all([loadReplay(run.id), loadMap()]); } catch (error) { toast(error.message, true); return; }
+  if (!lab) { toast("Es ist kein Labyrinth aktiv.", true); return; }
+  const layer = $("sheet-layer");
+  const clock = el("p", { class: "replay-clock num", text: "0:00.00" });
+  const end = el("p", { class: "replay-end" });
+  const mapBox = el("div", { class: "replay-map" });
+  const player = createPlayer(mapBox, {
+    onTime(text, phase) { clock.textContent = text; clock.classList.toggle("is-before", phase === "before"); },
+    onEnd() { end.textContent = END_TEXT[replay.end] || ""; },
+  });
+  player.setGeometry(lab);
+  const close = () => { player.stop(); layer.hidden = true; layer.replaceChildren(); };
+  const mode = RUN_MODE[replay.mode] || "Normal";
+  layer.replaceChildren(el("div", { class: "replay-sheet", role: "dialog", "aria-modal": "true" },
+    mapBox,
+    el("div", { class: "replay-info" },
+      el("strong", { text: replay.name }),
+      el("span", { class: "cell-sub", text: `${replay.birth_year} · ${mode}${replay.status === "finished" ? " · " + formatTime(replay.time_ms) : ""}` }),
+      clock, end,
+      el("div", { class: "replay-actions" },
+        el("button", { type: "button", class: "btn mini-btn", text: "Nochmal", onclick: () => { end.textContent = ""; player.play(replay); } }),
+        el("button", { type: "button", class: "btn btn-primary mini-btn", text: "Am Roboter", onclick: () => { close(); replayReal(run); } }),
+        el("button", { type: "button", class: "btn mini-btn", text: "Schließen", onclick: close })))));
+  layer.onclick = (event) => { if (event.target === layer) close(); };
+  layer.hidden = false;
+  player.play(replay);
+}
+
+function replayButtons(run) {
+  if (!run.replay) return el("span", { class: "run-noreplay", text: "ohne Aufzeichnung" });
+  return el("span", { class: "cell-row run-replay" },
+    el("button", { type: "button", class: "btn mini-btn", text: "Ansehen", onclick: () => replayVirtual(run) }),
+    el("button", { type: "button", class: "btn mini-btn", text: "Am Roboter", onclick: () => replayReal(run) }));
+}
+
+function runCells(runs, { deletable = false, onDelete, replay = false } = {}) {
   return runs.map((run) => el("li", { class: "cell" },
     el("span", { class: "cell-label" }, run.name,
       el("span", { class: "cell-sub num", text: `${run.birth_year} · ${formatDateTime(run.created_at)}` })),
+    replay && !deletable ? replayButtons(run) : null,
     modeBadge(run.speed_mode),
     run.status === "finished"
       ? el("span", { class: "run-time", text: formatTime(run.time_ms) })
@@ -835,6 +884,67 @@ sections.labyrinth = { title: "Labyrinth", build(root) {
   });
 } };
 
+// ----------------------------------------------------------------- dashboard
+// Everything about what the visitors see: live preview, look, board rotation, sounds, flow.
+sections.dashboard = { title: "Dashboard", build(root) {
+  const PAGES = { visitor: { path: "/?preview", label: "Besucher-Bildschirm" },
+                  stats: { path: "/stats?preview", label: "Statistik" } };
+  let page = "visitor";
+  const frame = el("iframe", { class: "preview-frame", title: "Vorschau", tabindex: "-1",
+                               src: PAGES.visitor.path });
+  const holder = el("div", { class: "preview" }, frame);
+  // The pages are designed for 1920 × 1080: render them at that size and scale down.
+  const fit = () => {
+    const scale = holder.clientWidth / 1920;
+    if (scale > 0) frame.style.transform = `scale(${scale})`;
+  };
+  new ResizeObserver(fit).observe(holder);
+  const pick = segmented(Object.entries(PAGES).map(([value, p]) => ({ value, label: p.label })), (value) => {
+    page = value;
+    pick.set(value);
+    frame.src = PAGES[value].path;
+  }, true);
+  pick.set(page);
+  const open = el("a", { class: "btn btn-text preview-open", target: "_blank", rel: "noopener",
+                         text: "In neuem Tab öffnen" });
+  open.href = "/";
+  pick.node.addEventListener("click", () => { open.href = PAGES[page].path.replace("?preview", ""); });
+  root.append(el("div", { class: "group-wrap" }, el("p", { class: "group-header", text: "Live-Vorschau" }),
+    el("div", { class: "preview-bar" }, pick.node, open), holder,
+    el("p", { class: "group-footer", text: "Die Vorschau zeigt genau, was die Besucher gerade sehen. Sie steuert nichts und spielt keine Töne." })));
+
+  root.append(group("Erscheinungsbild", [
+    choiceCell("visitor_theme", "Darstellung", [{ value: "dark", label: "Dunkel" }, { value: "light", label: "Hell" }]),
+  ], "Gilt für den Besucher-Bildschirm und die Statistik-Seite. Dunkel wirkt im hellen Raum ruhiger, Hell passt zu Tageslicht.").node);
+
+  root.append(group("Bestenliste", [
+    stepperCell("board_rotate_s", "Liste wechseln alle", { sub: "Im Leerlauf: Langsam → Normal → Turbo. 0 = aus" }),
+  ], "Steht 20 s niemand am Bildschirm, wechselt die Liste zwischen den drei Tempi.").node);
+
+  const test = (name, label) => el("button", { type: "button", class: "btn mini-btn", text: label,
+                                               onclick: () => cmd("sound_test", { name }) });
+  root.append(group("Töne", [
+    choiceCell("sound", "Töne", [{ value: "on", label: "An" }, { value: "off", label: "Aus" }],
+      "Am Besucher-Bildschirm: Ziel erreicht, neue Bestzeit, Wand berührt, Aufgeben"),
+    sliderCell("sound_volume", "Lautstärke", { step: 5 }),
+    el("li", { class: "cell" }, el("span", { class: "cell-label", text: "Testen" }),
+      el("span", { class: "cell-row sound-tests" },
+        test("win", "Ziel"), test("record", "Bestzeit"), test("wall", "Wand"), test("giveup", "Aufgeben"))),
+  ], "Der Ton kommt aus dem Laptop am Besucher-Bildschirm. Zusätzlich gilt die Windows-Lautstärke.").node);
+
+  root.append(group("Ablauf", [
+    stepperCell("countdown_s", "Countdown", { sub: "0 = aus" }),
+    stepperCell("result_display_s", "Ergebnis anzeigen"),
+  ]).node);
+
+  const address = valueCell("Adresse am iPad");
+  root.append(group("Statistik-Seite", [address.node],
+    "Eigene Seite für ein zweites iPad: Bestenlisten, Zeiten nach Alter und Zahlen zum Tag, live aktualisiert. "
+    + "Im Safari öffnen und über Teilen → Zum Home-Bildschirm als Vollbild-App ablegen.").node);
+  const host = ["localhost", "127.0.0.1"].includes(location.hostname) ? "192.168.137.1:8000" : location.host;
+  address.set(`http://${host}/stats`);
+} };
+
 // ---------------------------------------------------------------------- game
 sections.game = { title: "Spiel", build(root) {
   root.append(group("Geschwindigkeit", [
@@ -859,11 +969,6 @@ sections.game = { title: "Spiel", build(root) {
   ], "Wandtoleranz und Reserve berechnen die befahrbare Fläche neu. Der Auto-Lauf bleibt immer frei von den Wänden. "
     + "Damit der Abbruch greift, muss er höchstens so groß sein wie die negative Wandtoleranz (z. B. Toleranz −10, Abbruch 10).").node);
 
-  root.append(group("Ablauf", [
-    stepperCell("countdown_s", "Countdown", { sub: "0 = aus" }),
-    stepperCell("result_display_s", "Ergebnis anzeigen"),
-  ]).node);
-
   const effective = valueCell("Wird verwendet");
   const start = actionCell("Auto-Lauf starten", async () => {
     if (await confirmSheet({ title: "Auto-Lauf starten?", action: "Starten", destructive: false,
@@ -884,6 +989,65 @@ sections.game = { title: "Spiel", build(root) {
 
 // --------------------------------------------------------------- leaderboard
 sections.leaderboard = { title: "Bestenliste", build(root) {
+  // Leaderboard profiles: separate boards (e.g. rehearsal, open day). One is active.
+  const profiles = group("Profile", [], "Alle neuen Zeiten landen im aktiven Profil. Die anderen bleiben gespeichert. "
+    + "Wechseln geht nur, wenn gerade kein Lauf ist.");
+  const newName = el("input", { class: "text-input", type: "text", placeholder: "z. B. Tag der offenen Tür",
+                                maxlength: "40", "aria-label": "Name des neuen Profils" });
+  const create = el("button", { type: "button", class: "btn mini-btn", text: "Anlegen" });
+  const createRow = el("li", { class: "cell" }, el("span", { class: "cell-label", text: "Neues Profil" }),
+    el("span", { class: "cell-row profile-new" }, newName, create));
+  const addProfile = async () => {
+    const name = newName.value.trim();
+    if (!name) { toast("Bitte gib einen Namen ein.", true); return; }
+    if (await cmd("profile_add", { name })) { newName.value = ""; toast("Profil angelegt."); }
+  };
+  create.addEventListener("click", addProfile);
+  newName.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addProfile(); } });
+
+  const exportCell = actionCell("Aktives Profil exportieren (CSV für Excel)", () => {
+    location.href = "/api/admin/export.csv";
+  });
+  root.append(profiles.node, group(null, [exportCell.node],
+    "Alle Läufe des Profils mit Tempo, Platz, Alter und Datum. Am iPad öffnet sich die Datei zum Teilen oder Sichern.").node);
+
+  let profileKey = null;
+  updaters.push((s) => {
+    const list = s.admin.profiles || [];
+    const next = JSON.stringify(list);
+    if (next === profileKey) return;
+    profileKey = next;
+    profiles.list.replaceChildren(...list.map((p) => {
+      const actions = el("span", { class: "cell-row profile-actions" });
+      if (p.active) {
+        actions.append(el("span", { class: "profile-active", text: "Aktiv" }));
+      } else {
+        actions.append(el("button", { type: "button", class: "btn mini-btn", text: "Aktivieren",
+          onclick: () => cmd("profile_activate", { id: p.id }) }));
+      }
+      actions.append(
+        el("button", { type: "button", class: "btn mini-btn", text: "Export",
+          onclick: () => { location.href = `/api/admin/export.csv?profile=${p.id}`; } }),
+        el("button", { type: "button", class: "btn mini-btn", text: "Umbenennen", onclick: async () => {
+          const name = window.prompt("Neuer Name für das Profil", p.name);
+          if (name !== null && name.trim() && name.trim() !== p.name) cmd("profile_rename", { id: p.id, name });
+        } }));
+      if (!p.active) {
+        actions.append(el("button", { type: "button", class: "btn btn-danger-text mini-btn", text: "Löschen",
+          onclick: async () => {
+            if (await confirmSheet({ title: `Profil „${p.name}“ löschen?`, action: "Profil und Zeiten löschen",
+              text: `${p.runs} Zeiten gehen verloren. Exportiere sie vorher, wenn du sie behalten willst.` })) {
+              cmd("profile_delete", { id: p.id });
+            }
+          } }));
+      }
+      return el("li", { class: `cell${p.active ? " is-current" : ""}` },
+        el("span", { class: "cell-label" }, p.name,
+          el("span", { class: "cell-sub num", text: `${p.runs} ${p.runs === 1 ? "Zeit" : "Zeiten"} · seit ${formatDateTime(p.created_at)}` })),
+        actions);
+    }), createRow);
+  });
+
   let editing = false;
   let query = "";
   const search = el("input", { class: "text-input", type: "search", placeholder: "Name suchen",
@@ -896,7 +1060,8 @@ sections.leaderboard = { title: "Bestenliste", build(root) {
     let items = [];
     try { items = await request("GET", `/api/admin/runs?search=${encodeURIComponent(query)}`); } catch { return; }
     runs.list.replaceChildren(...(items.length
-      ? runCells(items, { deletable: editing, onDelete: async (run) => { if (await cmd("run_delete", { id: run.id })) refresh(); } })
+      ? runCells(items, { deletable: editing, replay: true,
+          onDelete: async (run) => { if (await cmd("run_delete", { id: run.id })) refresh(); } })
       : [el("li", { class: "empty", text: query ? "Kein Lauf mit diesem Namen." : "Noch keine Läufe." })]));
   }
   let timer = 0;
@@ -909,7 +1074,7 @@ sections.leaderboard = { title: "Bestenliste", build(root) {
   root.append(group(null, [
     actionCell("Bestenliste zurücksetzen", async () => {
       if (await confirmSheet({ title: "Bestenliste zurücksetzen?", action: "Alle Läufe löschen",
-        text: "Alle Zeiten dieses Labyrinths werden entfernt. Das lässt sich nicht rückgängig machen." })) {
+        text: "Alle Zeiten des aktiven Profils auf diesem Labyrinth werden entfernt. Das lässt sich nicht rückgängig machen." })) {
         if (await cmd("board_reset")) refresh();
       }
     }, { danger: true }).node,
@@ -920,7 +1085,7 @@ sections.leaderboard = { title: "Bestenliste", build(root) {
 
   let key = null;
   updaters.push((s) => {
-    const next = `${s.state}:${JSON.stringify(s.leaderboard.map((e) => e.run_id))}`;
+    const next = `${s.state}:${s.runs_rev}`;
     if (next !== key) { key = next; refresh(); }
   });
 } };
@@ -956,6 +1121,14 @@ function buildApp() {
 function applyState(state) {
   S = state;
   $("banner").hidden = !state.auto_request;
+  if (state.auto_request) {
+    const r = state.replay;
+    $("banner-title").textContent = r ? "Wiederholung angefragt" : "Auto-Lauf angefragt";
+    $("banner-sub").textContent = r
+      ? `Jemand am Statistik-iPad möchte den Lauf von ${r.name} am Roboter sehen.`
+      : "Ein Besucher möchte den Roboter fahren lassen.";
+  }
+  if (state.labyrinth_rev !== applyState.labRev) { applyState.labRev = state.labyrinth_rev; forgetMap(); }
   $("nav-status").textContent = state.state === "DISCONNECTED" && state.robot.connected
     ? "Home nicht bestätigt" : STATE_LABEL[state.state];
   for (const update of updaters) {

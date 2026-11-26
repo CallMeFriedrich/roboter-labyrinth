@@ -175,6 +175,22 @@ Werkzeug-Versatz, Stiftdurchmesser, Eintauchtiefe, Rückzug und Besucherseite st
 - Die Zeit startet an der Startlinie und stoppt an der Ziellinie. Danach fährt der Roboter Home.
 - **Aufgeben** ist jederzeit möglich (zweimal klicken). Es gibt keinen Eintrag.
 - Auf dem Tablet zeigt die **Übersicht** die Live-Karte. **Lauf abbrechen** wirkt mit einem Tipp.
+- **Töne:** Der Besucher-Bildschirm spielt einen Ton bei Ziel, neuer Bestzeit, Wandberührung und Aufgeben. Unter **Spiel → Töne** lassen sie sich ausschalten, die Lautstärke einstellen und jeder Ton testen. Der Ton kommt aus dem Laptop; zusätzlich gilt die Windows-Lautstärke.
+
+### 5.3a Dashboard, Profile, Export und Statistik
+
+- **Admin → Dashboard:** Live-Vorschau des Besucher-Bildschirms und der Statistik-Seite (die Vorschau steuert nichts und spielt keine Töne). Hier stellst du ein: **Darstellung** Dunkel/Hell (gilt für Besucher-Bildschirm und Statistik), wie oft die Bestenliste im Leerlauf zwischen den Tempi wechselt, **Töne** (an/aus, Lautstärke, Testen) sowie Countdown und Ergebnisdauer.
+- **Bestenlisten-Profile (Admin → Bestenliste):** Jedes Profil hat eigene Bestenlisten, z. B. „Probelauf“ und „Tag der offenen Tür“. Neue Zeiten landen immer im aktiven Profil, die anderen bleiben gespeichert. Wechseln geht nur, wenn gerade kein Lauf ist. Das aktive Profil lässt sich nicht löschen.
+- **Export:** „Aktives Profil exportieren“ (oder „Export“ beim jeweiligen Profil) lädt eine CSV-Datei, die sich direkt in Excel öffnet: Platz im Tempo, Tempo, Name, Geburtsjahr, Alter, Zeit, Status, Labyrinth, Datum.
+- **Statistik-Seite fürs zweite iPad:** `http://192.168.137.1:8000/stats` im Safari öffnen und über Teilen → „Zum Home-Bildschirm“ als Vollbild-App ablegen. Sie zeigt Zahlen zum Tag, „Zeit nach Alter“ (jeder Lauf ein Punkt, Form und Farbe = Tempo), die schnellste Zeit je Altersgruppe und die Top 5 je Tempo. Alles aktualisiert sich live, ein Login ist nicht nötig.
+
+### 5.3b Wiederholungen (Replays)
+
+- Bei jedem Besucher-Lauf wird der gefahrene Weg mitgespeichert – auch bei Wandberührung oder Aufgeben. Läufe von vor dieser Funktion haben keine Aufzeichnung („ohne Aufzeichnung“).
+- **Statistik-iPad:** „Letzte Versuche“ zeigt die letzten 8 Versuche, die Top 5 jedes Tempos haben einen Abspiel-Knopf. **Ansehen** spielt den Lauf auf der Labyrinth-Karte im Original-Rhythmus ab. **Am echten Roboter** schickt eine Anfrage; auf dem Tablet erscheint das Banner „Wiederholung angefragt“ mit Freigeben/Ablehnen (ohne Antwort verfällt die Anfrage nach 60 s).
+- Alles auf dem Statistik-iPad kehrt von selbst zur Startansicht zurück: 45 s ohne Berührung, 12 s nach dem Ende einer Wiedergabe, 5 s nach einer Anfrage.
+- **Admin → Bestenliste:** Bei jedem Lauf **Ansehen** (virtuell) und **Am Roboter** (startet sofort nach Bestätigung).
+- Der Roboter fährt den aufgezeichneten Weg mit dem damaligen Tempo (heutiger Wert in mm/s) und den Pausen nach – immer begrenzt auf die **heutige** befahrbare Fläche und die Besucher-Geschwindigkeitsgrenzen. Eine Wiederholung erzeugt keinen Eintrag und lässt sich wie jeder Lauf mit **Lauf abbrechen** stoppen.
 
 ### 5.4 Auto-Lauf
 
@@ -253,6 +269,10 @@ Quaternionen bei ABB: `[q1, q2, q3, q4] = [w, x, y, z]`.
 | Stiftdrehung | 0° | −180 bis 180 |
 | Countdown | 3 s | 0–5 |
 | Ergebnis anzeigen | 8 s | 3–30 |
+| Töne | an | an, aus |
+| Lautstärke | 70 % | 0–100 % |
+| Darstellung Besucher/Statistik | Dunkel | Dunkel, Hell |
+| Bestenliste wechseln alle | 8 s | 0–60 s (0 = aus) |
 | Besucherseite | gegenüber | gegenüber, Roboterseite |
 | Zeitmessung Auto-Lauf | Halt an Linien | LOGGER, Halt an Linien, berechnet |
 

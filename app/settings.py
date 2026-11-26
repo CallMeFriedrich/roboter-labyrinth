@@ -127,6 +127,10 @@ SETTING_DEFS: dict[str, NumberDef | ChoiceDef] = {
     # The run ends when the pen edge is this deep in a wall (commanded position). 0 = off.
     "wall_abort_depth": NumberDef(0, 0, 50, unit="mm"),
     "wall_abort": ChoiceDef("on", ("on", "off")),                # wall detection switched on/off
+    "sound": ChoiceDef("on", ("on", "off")),                     # sounds on the visitor screen
+    "visitor_theme": ChoiceDef("dark", ("dark", "light")),       # look of visitor screen + stats page
+    "board_rotate_s": NumberDef(8, 0, 60, integer=True, unit="s"),   # idle: next speed board, 0 = off
+    "sound_volume": NumberDef(70, 0, 100, integer=True, unit="%"),
     "auto_extra_margin": NumberDef(1.5, 0, 5, unit="mm"),
     "insert_depth": NumberDef(5, 0, 20, unit="mm"),
     "retract_distance": NumberDef(30, 10, 100, unit="mm"),

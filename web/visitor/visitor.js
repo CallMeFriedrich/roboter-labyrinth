@@ -1,8 +1,12 @@
 // Visitor screen: timer, registration, W A S D steering, leaderboard (CLAUDE.md §9.1).
 import { connect } from "/static/shared/ws.js";
 import { el, formatTime, timeParts } from "/static/shared/format.js";
+import * as sound from "./sounds.js";
+import { loadLogo } from "/static/shared/logo.js";
 
 const $ = (id) => document.getElementById(id);
+// "?preview" = shown inside the admin panel: never steers, never plays sounds.
+const PREVIEW = new URLSearchParams(location.search).has("preview");
 const stage = $("stage");
 
 const KEY_MAP = {
@@ -18,7 +22,6 @@ const SPEED_ORDER = ["slow", "normal", "turbo"];
 const RESULT_IN = { slow: "im Schneckentempo", normal: "im normalen Tempo", turbo: "im Turbo" };
 const EMPTY_IN = { slow: "Noch keine Zeiten im Schneckentempo.", normal: "Noch keine Zeiten im normalen Tempo.",
                    turbo: "Noch keine Zeiten im Turbo." };
-const BOARD_ROTATE_MS = 8000;      // idle screen: the list changes speed every 8 s
 const BOARD_QUIET_MS = 20_000;     // ... but only after 20 s without anybody at the screen
 const SPEED_KEYS = { Digit1: "slow", Digit2: "normal", Digit3: "turbo",
                      Numpad1: "slow", Numpad2: "normal", Numpad3: "turbo" };
@@ -42,6 +45,8 @@ let boardMode = "normal";    // speed whose top 10 is shown in the list
 let rotateMode = "normal";   // idle rotation position
 let lastTouch = 0;           // performance.now() of the last visitor input
 let lastBoardMode = null;
+let rotateEvery = 8000;      // ms; from the admin ("Bestenliste wechseln"), 0 = off
+let lastRotate = 0;
 
 // ------------------------------------------------------------------- scaling
 function fit() {
@@ -51,67 +56,25 @@ function fit() {
 window.addEventListener("resize", fit);
 fit();
 
-// ---------------------------------------------------------------------- logo
-// The engraving is one-coloured; on screen the three corner marks get the school colours
-// (measured from the official logo): petrol top left, green top right, grey bottom left.
-const LOGO_MARKS = [
-  { colour: "#0082a3", box: [0, 0, 0.09, 0.25] },
-  { colour: "#96c11a", box: [0.09, 0, 0.19, 0.25] },
-  { colour: "#838383", box: [0, 0.27, 0.09, 0.55] },
-];
-
-function colourLogo(svg, paths, bounds) {
-  const [x0, y0, x1, y1] = bounds;
-  const w = x1 - x0, h = y1 - y0;
-  const ns = "http://www.w3.org/2000/svg";
-  for (const d of paths) {
-    for (const sub of d.match(/[Mm][^Mm]*/g) || []) {
-      const piece = document.createElementNS(ns, "path");
-      piece.setAttribute("d", sub);
-      svg.append(piece);
-      let b;
-      try { b = piece.getBBox(); } catch { piece.remove(); continue; }
-      const r = [(b.x - x0) / w, (b.y - y0) / h, (b.x + b.width - x0) / w, (b.y + b.height - y0) / h];
-      const mark = LOGO_MARKS.find(({ box }) =>
-        r[0] >= box[0] - 0.005 && r[1] >= box[1] - 0.005 && r[2] <= box[2] && r[3] <= box[3]);
-      if (mark) piece.style.fill = mark.colour;    // solid shapes: drawn over the white logo
-      else piece.remove();
-    }
-  }
-}
-async function loadLogo() {
-  try {
-    const data = await (await fetch("/api/logo")).json();
-    if (!data.paths.length || !data.bounds) return;
-    const [x0, y0, x1, y1] = data.bounds;
-    const ns = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("viewBox", `${x0} ${y0} ${x1 - x0} ${y1 - y0}`);
-    for (const d of data.paths) {
-      const path = document.createElementNS(ns, "path");
-      path.setAttribute("d", d);
-      path.setAttribute("fill-rule", "evenodd");
-      svg.append(path);
-    }
-    $("logo").replaceChildren(svg);
-    colourLogo(svg, data.paths, data.bounds);
-  } catch { /* the logo is decoration; the screen works without it */ }
-}
-
 // ----------------------------------------------------------------- websocket
 const socket = connect("/ws/visitor", {
   onOpen() { online = true; render(); },
   onClose() { online = false; releaseKeys(); render(); },
   onMessage(message) {
     if (message.type === "hello") {
-      control = message.control;
-      stage.classList.toggle("is-viewer", !control);
+      control = message.control && !PREVIEW;      // the admin preview only watches
+      stage.classList.toggle("is-viewer", !control && !PREVIEW);   // the preview shows the kiosk view
     } else if (message.type === "state") {
       const previous = state;
       state = message;
-      if (!previous || previous.labyrinth_rev !== state.labyrinth_rev) loadLogo();
+      sound.configure(state.sound);
+      applyDisplay(state.display);
+      if (control && previous) playTransition(previous, state);
+      if (!previous || previous.labyrinth_rev !== state.labyrinth_rev) loadLogo($("logo"));
       syncTimerBase();
       render(previous);
+    } else if (message.type === "sound") {
+      if (control) sound.play(message.name);              // admin: "Ton testen"
     } else if (message.type === "error") {
       showFormError(message.message);
     }
@@ -187,8 +150,12 @@ function statusText(s) {
     case "COUNTDOWN": return "Mach dich bereit.";
     case "ARMED": return "Die Zeit läuft ab der Startlinie.";
     case "RUNNING": return s.run ? s.run.name : "";
-    case "AUTO_REQUESTED": return "Ein Betreuer gibt den Roboter gleich frei …";
-    case "AUTO_RUN": return "Der Roboter fährt ganz allein den kürzesten Weg.";
+    case "AUTO_REQUESTED":
+      return s.replay ? `Wiederholung von ${s.replay.name} – ein Betreuer gibt gleich frei …`
+        : "Ein Betreuer gibt den Roboter gleich frei …";
+    case "AUTO_RUN":
+      return s.replay ? `Wiederholung: Der Roboter fährt den Lauf von ${s.replay.name} nach.`
+        : "Der Roboter fährt ganz allein den kürzesten Weg.";
     case "FINISHED": return s.result ? s.result.name : "";
     case "ABORTING": return s.notice || "Der Roboter fährt zurück …";
     case "RETURNING_HOME":
@@ -199,6 +166,25 @@ function statusText(s) {
     default: return "";
   }
 }
+
+// Look chosen by the admin: dark (default) or light; idle rotation of the speed boards.
+function applyDisplay(display) {
+  if (!display) return;
+  document.documentElement.classList.toggle("theme-light", display.theme === "light");
+  rotateEvery = Math.max(0, Number(display.rotate_s) || 0) * 1000;
+}
+
+// Sounds only on the steering screen (the kiosk), not on screens that just watch.
+function playTransition(before, now) {
+  const result = now.result;
+  if (result && (!before.result || before.result.run_id !== result.run_id)) {
+    sound.play(result.new_best ? "record" : "win");
+  }
+  if (now.wall_hit && !before.wall_hit) sound.play("wall");
+}
+
+// Browsers allow sound only after an interaction: any key or click unlocks it.
+for (const type of ["keydown", "pointerdown"]) window.addEventListener(type, sound.unlock, { capture: true });
 
 function render(previous) {
   const paused = !online || !state || PAUSE_STATES.has(state.state);
@@ -212,7 +198,8 @@ function render(previous) {
   const idle = s === "IDLE";
 
   $("status").textContent = statusText(state);
-  $("tag").hidden = !(s === "AUTO_RUN" || (s === "RETURNING_HOME" && state.auto_result));
+  $("tag").hidden = !(s === "AUTO_RUN" || (s === "RETURNING_HOME" && (state.auto_result || state.replay)));
+  $("tag").textContent = state.replay ? "Wiederholung" : "Roboter";
 
   // Timer
   const timer = $("timer");
@@ -326,9 +313,11 @@ function shownMode() {
 
 setInterval(() => {
   if (!state || state.state !== "IDLE" || state.result || performance.now() - lastTouch <= BOARD_QUIET_MS) return;
+  if (!rotateEvery || performance.now() - lastRotate < rotateEvery) return;
+  lastRotate = performance.now();
   rotateMode = SPEED_ORDER[(SPEED_ORDER.indexOf(rotateMode) + 1) % SPEED_ORDER.length];
   renderBoard();
-}, BOARD_ROTATE_MS);
+}, 500);
 
 function renderRecords(boards, mode) {
   for (const button of document.querySelectorAll(".record")) {
@@ -465,6 +454,7 @@ $("give-up").addEventListener("click", () => {
   const button = $("give-up");
   if (button.classList.contains("is-confirm")) {
     socket.send({ type: "give_up" });
+    sound.play("giveup");
     resetGiveUp();
     return;
   }

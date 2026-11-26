@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ..game.engine import GameEngine, GameError
+from ..game.export import file_name, runs_csv
 from .hub import SESSION_COOKIE, AuthError
 
 router = APIRouter(prefix="/api")
@@ -84,6 +86,50 @@ async def runs(request: Request, search: str = "") -> list[dict]:
     return engine.db.list_runs(engine.lab.id, search.strip()[:40])
 
 
+@router.get("/admin/export.csv", dependencies=[Depends(require_admin)])
+async def export_csv(request: Request, profile: int | None = None) -> Response:
+    """Download of a leaderboard profile (default: the active one) as CSV for Excel."""
+    db = _engine(request).db
+    chosen = db.profile(profile) if profile is not None else db.active_profile()
+    if chosen is None:
+        return JSONResponse({"message": "Dieses Profil gibt es nicht."}, status_code=404)
+    name = file_name(chosen["name"])
+    return Response(runs_csv(db.export_runs(chosen["id"])), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+                             "Cache-Control": "no-store"})
+
+
+@router.get("/stats")
+async def stats(request: Request) -> dict:
+    """Public: data for the statistics page (iPad next to the exhibit)."""
+    return _engine(request).stats()
+
+
+@router.get("/map")
+async def map_data(request: Request) -> Any:
+    """Public: drawing of the active labyrinth for virtual replays."""
+    return _engine(request).map_data()
+
+
+@router.get("/runs/{run_id}/replay")
+async def replay_data(run_id: int, request: Request) -> Any:
+    """Public: recorded path of a run (positions only)."""
+    try:
+        return _engine(request).replay_data(run_id)
+    except GameError as exc:
+        return JSONResponse({"message": str(exc)}, status_code=404)
+
+
+@router.post("/runs/{run_id}/replay-request")
+async def replay_request(run_id: int, request: Request) -> Any:
+    """Public (stats iPad): ask for a real replay; an admin has to approve it."""
+    try:
+        await _engine(request).request_replay(run_id)
+    except GameError as exc:
+        return JSONResponse({"message": str(exc)}, status_code=409)
+    return {"ok": True}
+
+
 @router.get("/logo")
 async def logo(request: Request) -> dict:
     """Engraving of the active labyrinth (TFO logo) for the visitor screen."""
@@ -133,6 +179,12 @@ COMMANDS: dict[str, Handler] = {
     "auto_reject": lambda e, b: e.reject_auto(),
     "abort": lambda e, b: e.abort(),
     "release": lambda e, b: _sync(e.release()),
+    "sound_test": lambda e, b: e.sound_test(str(b.get("name", "win"))),
+    "replay_start": lambda e, b: e.start_replay(int(b["id"])),
+    "profile_add": lambda e, b: _sync({"id": e.create_profile(b.get("name"), bool(b.get("activate")))}),
+    "profile_activate": lambda e, b: _sync(e.activate_profile(int(b["id"]))),
+    "profile_rename": lambda e, b: _sync(e.rename_profile(int(b["id"]), b.get("name"))),
+    "profile_delete": lambda e, b: _sync(e.delete_profile(int(b["id"]))),
     "pause": lambda e, b: _sync(e.pause()),
     "run_delete": lambda e, b: _sync(e.delete_run(int(b["id"]))),
     "board_reset": lambda e, b: _sync(e.reset_leaderboard()),

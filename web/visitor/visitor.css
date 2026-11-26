@@ -1,4 +1,4 @@
-/* Visitor screen: designed for 1920 × 1080, always dark (CLAUDE.md §9.1, §10). */
+/* Visitor screen: designed for 1920 × 1080. Dark by default; the admin can switch to light. */
 
 html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: default; }
 
@@ -406,3 +406,20 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); cursor: defa
 /* Logo a little larger now that it is scaled to the logo alone. */
 .head { height: 56px; }
 .logo { height: 56px; }
+
+/* ------------------------------------------------------------------ light look
+   Cards are white on a light grey page; they get a hairline so they stand off it. */
+.theme-light .robot-card, .theme-light .record, .theme-light .speed-option, .theme-light .key,
+.theme-light .field input {
+  box-shadow: 0 0 0 1px rgba(60, 60, 67, 0.12), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.theme-light .key.is-down { box-shadow: none; }
+.theme-light .record.is-on, .theme-light .speed-option.is-on { background: var(--surface-1); }
+.theme-light .stage.is-turbo { --accent: #d70015; }
+.theme-light .stage.is-slow { --accent: #248a3d; }
+.theme-light .stage .timer:not(.is-dim):not(.is-final) .fraction { color: var(--label-2); }
+.theme-light .stage.is-turbo .timer:not(.is-dim):not(.is-final) .fraction { color: #d70015; }
+.theme-light .stage.is-slow .timer:not(.is-dim):not(.is-final) .fraction { color: #248a3d; }
+.theme-light .record[data-mode="slow"] { --tone: #248a3d; }
+.theme-light .record[data-mode="normal"] { --tone: #007aff; }
+.theme-light .record[data-mode="turbo"] { --tone: #d70015; }

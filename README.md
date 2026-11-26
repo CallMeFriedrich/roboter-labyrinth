@@ -40,6 +40,7 @@ Danach den Server neu starten.
 | Laptop, Ethernet zum Roboter | fest `192.168.0.100`, Maske `255.255.255.0` |
 | Laptop, Windows Mobile Hotspot | `192.168.137.1` |
 | Tablet (im Hotspot-WLAN) | öffnet `http://192.168.137.1:8000/admin` |
+| Statistik-iPad (im Hotspot-WLAN) | öffnet `http://192.168.137.1:8000/stats` |
 | Besucher-Monitor | Kiosk-Browser auf `http://127.0.0.1:8000/` |
 
 - **Hotspot:** Einstellungen → Netzwerk und Internet → Mobiler Hotspot → Ein. SSID und Passwort dort festlegen und hier notieren: SSID `____________`, Passwort `____________`.

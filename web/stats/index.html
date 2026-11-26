@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Statistik">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#000000">
+  <link rel="apple-touch-icon" href="/static/admin/icon-180.png">
+  <link rel="icon" href="/static/admin/icon-180.png">
+  <title>Roboter-Labyrinth – Statistik</title>
+  <link rel="preload" href="/static/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/shared/tokens.css">
+  <link rel="stylesheet" href="/static/shared/components.css">
+  <link rel="stylesheet" href="/static/stats/stats.css">
+</head>
+<body>
+  <!-- Designed for an iPad in landscape (1180 × 820); stats.js scales it to any screen. -->
+  <div id="stage" class="stage">
+    <header class="head">
+      <div id="logo" class="logo" aria-label="TFO Bruneck"></div>
+      <div class="head-title">
+        <h1>Statistik</h1>
+        <p id="profile" class="head-sub"></p>
+      </div>
+      <button id="open-recent" type="button" class="pill-btn">
+        <svg class="play-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z"/></svg>
+        Letzte Versuche
+      </button>
+      <div id="live" class="live" aria-live="polite">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="live-text" class="live-text">Live</span>
+        <span id="live-time" class="live-time num"></span>
+      </div>
+    </header>
+
+    <section class="tiles" aria-label="Zahlen zum Tag">
+      <div class="tile">
+        <span class="tile-label">Im Ziel</span>
+        <span id="t-finished" class="tile-value num">0</span>
+        <span id="t-finished-sub" class="tile-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Wand berührt oder aufgegeben</span>
+        <span id="t-aborted" class="tile-value num">0</span>
+        <span id="t-aborted-sub" class="tile-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Durchschnittsalter</span>
+        <span id="t-age" class="tile-value num">–</span>
+        <span id="t-age-sub" class="tile-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Bestzeit Roboter</span>
+        <span id="t-robot" class="tile-value num">–:––.––</span>
+        <span id="t-robot-sub" class="tile-sub"></span>
+      </div>
+    </section>
+
+    <section class="charts">
+      <figure class="card chart-scatter">
+        <figcaption class="card-head">
+          <span class="card-title">Zeit nach Alter</span>
+          <span class="card-note">Jeder Punkt ist ein Lauf im Ziel. Weiter oben ist schneller.</span>
+        </figcaption>
+        <div id="legend" class="legend" aria-label="Legende"></div>
+        <div id="scatter" class="scatter"></div>
+        <div id="tip" class="tip" hidden></div>
+      </figure>
+
+      <figure class="card chart-ages">
+        <figcaption class="card-head">
+          <span class="card-title">Schnellste je Altersgruppe</span>
+          <span class="card-note">Beste Zeit pro Tempo. Kürzerer Balken ist schneller.</span>
+        </figcaption>
+        <div id="ages" class="ages"></div>
+      </figure>
+    </section>
+
+    <section class="boards" aria-label="Bestenlisten">
+      <div class="card board" data-mode="slow">
+        <div class="board-head"><span class="mark" data-mode="slow"></span><span>Langsam</span></div>
+        <ol class="board-list" data-board="slow"></ol>
+      </div>
+      <div class="card board" data-mode="normal">
+        <div class="board-head"><span class="mark" data-mode="normal"></span><span>Normal</span></div>
+        <ol class="board-list" data-board="normal"></ol>
+      </div>
+      <div class="card board" data-mode="turbo">
+        <div class="board-head"><span class="mark" data-mode="turbo"></span><span>Turbo</span></div>
+        <ol class="board-list" data-board="turbo"></ol>
+      </div>
+    </section>
+
+    <!-- Last attempts: every one can be watched again (virtually) or driven again (robot, admin approves). -->
+    <div id="recent" class="overlay" hidden>
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <div>
+            <h2>Letzte Versuche</h2>
+            <p>Schau dir jeden Lauf nochmal an – oder lass ihn den echten Roboter nachfahren.</p>
+          </div>
+          <button type="button" class="pill-btn" data-close>Fertig</button>
+        </div>
+        <ol id="recent-list" class="recent-list"></ol>
+      </div>
+    </div>
+
+    <!-- Virtual replay -->
+    <div id="viewer" class="overlay" hidden>
+      <div class="viewer-card">
+        <div id="viewer-map" class="viewer-map"></div>
+        <div class="viewer-side">
+          <p id="viewer-kicker" class="viewer-kicker">Wiederholung</p>
+          <h2 id="viewer-name" class="viewer-name"></h2>
+          <p id="viewer-meta" class="viewer-meta"></p>
+          <p id="viewer-clock" class="viewer-clock num">0:00.00</p>
+          <p id="viewer-end" class="viewer-end"></p>
+          <div class="viewer-actions">
+            <button id="viewer-again" type="button" class="action action-secondary">Nochmal ansehen</button>
+            <button id="viewer-real" type="button" class="action action-primary">Am echten Roboter</button>
+            <button type="button" class="action action-quiet" data-close>Zurück zur Statistik</button>
+          </div>
+          <p id="viewer-note" class="viewer-note" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+
+    <div id="pause" class="pause" hidden><p>Die Verbindung zum Laptop ist kurz weg. Die Seite verbindet sich gleich wieder.</p></div>
+  </div>
+  <script type="module" src="/static/stats/stats.js"></script>
+</body>
+</html>

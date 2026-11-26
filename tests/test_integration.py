@@ -87,10 +87,20 @@ def test_pages_static_files_and_login(stack):
                  "fonts/InterVariable.woff2"):
         assert client.get(f"/static/{path}").status_code == 200, path
     assert client.get("/api/logo").json()["paths"]
+    assert "Statistik" in client.get("/stats").text
+    for path in ("stats/stats.js", "stats/stats.css", "shared/logo.js", "visitor/sounds.js"):
+        assert client.get(f"/static/{path}").status_code == 200, path
+    stats = client.get("/api/stats").json()
+    assert set(stats) >= {"profile", "runs", "boards", "year"}
+    export = client.get("/api/admin/export.csv")
+    assert export.status_code == 200 and export.text.startswith("﻿Platz im Tempo;")
+    assert "Bestenliste_Standard_" in export.headers["content-disposition"]
 
     anonymous = TestClient(client.app)
     assert anonymous.get("/api/admin/state").status_code == 401
     assert anonymous.post("/api/admin/cmd/home").status_code == 401
+    assert anonymous.get("/api/admin/export.csv").status_code == 401
+    assert anonymous.get("/api/stats").status_code == 200       # the stats iPad needs no login
     assert anonymous.post("/api/admin/login", json={"pin": "0000"}).status_code == 401
     assert anonymous.get("/api/admin/session").json() == {"ok": False}
     with anonymous.websocket_connect("/ws/admin") as ws:

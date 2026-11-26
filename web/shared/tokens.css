@@ -67,6 +67,27 @@
   }
 }
 
+/* Light look for the visitor screen and the stats page: chosen by the admin
+   ("Dashboard" → "Erscheinungsbild"), set as class="theme-light" on <html>. */
+:root.theme-light {
+  color-scheme: light;
+  --bg: #f2f2f7;
+  --bg-grouped: #f2f2f7;
+  --surface-1: #ffffff;
+  --surface-2: #e5e5ea;
+  --surface-3: #d1d1d6;
+  --separator: rgba(60, 60, 67, 0.29);
+  --label: #000000;
+  --label-2: rgba(60, 60, 67, 0.72);
+  --label-3: rgba(60, 60, 67, 0.45);
+  --success: #248a3d;
+  --danger: #d70015;
+  --warning: #b25000;
+  --accent: #007aff;
+  --on-accent: #ffffff;
+  --toggle-on: #34c759;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html {

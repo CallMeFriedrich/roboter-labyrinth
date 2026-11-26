@@ -163,6 +163,7 @@ button.cell:disabled { opacity: 0.35; }
 .num-input { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
 .stepper-value { display: inline-flex; align-items: center; gap: var(--s-2); }
 .stepper-input { width: 88px; }
+.sound-tests { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); }
 .inline-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: var(--s-2); }
 .inline-fields label { display: flex; flex-direction: column; gap: var(--s-1); font-size: 12px; line-height: 16px; letter-spacing: 0.01em; color: var(--label-2); }
 .inline-fields .num-input { width: 100%; }
@@ -287,3 +288,36 @@ button.cell:disabled { opacity: 0.35; }
 .sheet-cancel { border-radius: var(--r-field) !important; background: var(--surface-1) !important; font-weight: 600; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } }
+
+/* ----------------------------------------------------------- dashboard preview */
+.preview-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  margin-bottom: var(--s-3); flex-wrap: wrap; }
+.preview-open { font-size: 15px; text-decoration: none; color: var(--accent); }
+.preview { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+  border-radius: var(--r-group); background: #000; box-shadow: 0 0 0 1px var(--separator); }
+.preview-frame { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0;
+  transform-origin: 0 0; pointer-events: none; }
+
+/* ------------------------------------------------------------------- profiles */
+.profile-actions { flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); }
+.profile-active { font-size: 15px; font-weight: 600; color: var(--success); padding: 0 var(--s-2); }
+.profile-new .text-input { width: 240px; }
+.cell.is-current .cell-label { font-weight: 600; }
+
+/* -------------------------------------------------------------------- replays */
+.run-replay { gap: var(--s-2); margin-right: var(--s-3); }
+.run-noreplay { margin-right: var(--s-3); font-size: 13px; color: var(--label-3); }
+.replay-sheet { width: min(860px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: var(--s-5);
+  padding: var(--s-5); border-radius: var(--r-sheet); background: var(--surface-1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); animation: sheet-in var(--t-sheet) var(--ease-sheet) both; }
+.replay-map .map { aspect-ratio: 1; max-height: 70vh; }
+.replay-info { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.replay-info strong { font-size: 22px; line-height: 28px; }
+.replay-clock { margin: var(--s-5) 0 0; font-size: 44px; line-height: 1; font-weight: 600; letter-spacing: -0.022em; }
+.replay-clock.is-before { color: var(--label-3); }
+.replay-end { margin: var(--s-2) 0 0; min-height: 22px; font-weight: 600; }
+.replay-actions { margin-top: auto; display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.replay-trail { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; opacity: 0.85; }
+.replay-trail[data-end="wall"] { stroke: var(--danger); }
+@media (max-width: 699px) { .replay-sheet { grid-template-columns: 1fr; } }

@@ -6,6 +6,7 @@ API layer; they raise `GameError` with a German message for the user.
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 import logging
 import math
 import time
@@ -15,7 +16,7 @@ from typing import Any
 
 from shapely.geometry import Point, Polygon
 
-from ..db import Database
+from ..db import PROFILE_NAME_MAX, Database
 from ..geometry import frames
 from ..geometry.channel import Channel
 from ..geometry.frames import Frame
@@ -84,6 +85,9 @@ class GameEngine:
         self.message = ""                       # last problem, shown in the admin panel
         self.notice: str | None = None          # short visitor message while the robot goes back
         self.speed_mode = "normal"              # visitor choice: slow | normal | turbo
+        self._recording: dict | None = None     # path of the running visitor run (for replays)
+        self.replay: dict | None = None         # replay requested or running: run info + path
+        self.replay_requested = False
         self.wall_hit: dict | None = None       # {"time_ms", "depth"} while a wall touch is shown
         self.cycle_ms = 0.0
         self.paused = False                     # admin hold: visitors may not start new runs
@@ -508,6 +512,14 @@ class GameEngine:
         self.sm.to(S.MOVING_TO_START)
         self._run_task = asyncio.create_task(self._guarded(self._visitor_run), name="visitor-run")
 
+    SOUND_NAMES = ("win", "record", "wall", "giveup")
+
+    async def sound_test(self, name: str) -> None:
+        """Admin: play a sound on the visitor screen (to set the volume on site)."""
+        if name not in self.SOUND_NAMES:
+            raise GameError("Unbekannter Ton.")
+        await self.hub.send_public({"type": "sound", "name": name})
+
     def speeds(self) -> dict[str, float]:
         return {mode: float(self.settings[key]) for mode, key in SPEED_MODES.items()}
 
@@ -544,8 +556,13 @@ class GameEngine:
         finished = asyncio.Event()
         z = self.robot.insert_z()
         wall_hit: list[float] = []
+        rec_t0 = time.monotonic_ns()
+        recording = {"t0": rec_t0, "mode": run.get("speed_mode", "normal"),
+                     "points": [[0, round(start[0], 1), round(start[1], 1)]]}
+        self._recording = recording
 
         def on_segment(p0, p1, t0_ns, t1_ns) -> None:
+            recording["points"].append([round((t1_ns - rec_t0) / 1e6), round(p1[0], 1), round(p1[1], 1)])
             event = timer.feed(p0, p1, t0_ns, t1_ns)
             if event == "started":
                 self.sm.to(S.RUNNING)
@@ -589,6 +606,7 @@ class GameEngine:
         self.speed_mode = "normal"              # every new visitor starts on "Normal" again
         self.result = self.board.add_finished(lab.id, run["name"], run["birth_year"], timer.time_ms,
                                               run.get("speed_mode", "normal"))
+        self._save_recording(self.result["run_id"], "finished")
         self.sm.to(S.FINISHED)
         shown_since = time.monotonic()
         await self.hub.send_public({"type": "result", **self.result})
@@ -605,8 +623,9 @@ class GameEngine:
         log.info("Lauf von %s beendet: %.1f mm in der Wand nach %d ms", run["name"], depth, time_ms)
         self.keys.clear()
         if self.lab is not None:
-            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
-                                   run.get("speed_mode", "normal"))
+            run_id = self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
+                                            run.get("speed_mode", "normal"))
+            self._save_recording(run_id, "wall")
         self.wall_hit = {"time_ms": time_ms, "depth": round(depth, 1)}
         self.notice = "Wand berührt – der Roboter bleibt kurz stehen."
         self.sm.to(S.ABORTING)
@@ -616,8 +635,22 @@ class GameEngine:
         await self.robot.go_home()
         self._end_run()
 
+    def _save_recording(self, run_id: int, end: str) -> None:
+        """Store the steered path of a run so it can be replayed (virtually or with the robot)."""
+        rec, self._recording = self._recording, None
+        if not rec or len(rec["points"]) < 2:
+            return
+        timer, t0 = self.timer, rec["t0"]
+        offset = lambda ns: round((ns - t0) / 1e6) if ns is not None else None   # noqa: E731
+        self.db.save_run_path(run_id, {
+            "v": 1, "mode": rec["mode"], "end": end, "points": rec["points"],
+            "start_ms": offset(timer.started_ns) if timer else None,
+            "finish_ms": offset(timer.finished_ns) if timer else None})
+
     def _end_run(self) -> None:
         self.notice = None
+        self.replay = None
+        self.replay_requested = False
         self.wall_hit = None
         self.run = self.timer = self.result = self.auto_result = None
         self.sm.to(S.IDLE)
@@ -646,8 +679,10 @@ class GameEngine:
         if self.sm.state != S.ABORTING:       # failed in the meantime
             return
         if run is not None and run["kind"] == "visitor" and self.lab is not None:
-            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
-                                   run.get("speed_mode", "normal"))
+            run_id = self.board.add_aborted(self.lab.id, run["name"], run["birth_year"],
+                                            run.get("speed_mode", "normal"))
+            self._save_recording(run_id, "aborted")
+        self._recording = None
         self.run = self.timer = self.countdown_end = None
         self._run_task = asyncio.create_task(self._guarded(self._return_home), name="return-home")
 
@@ -669,6 +704,7 @@ class GameEngine:
         await asyncio.sleep(AUTO_REQUEST_TIMEOUT)
         if self.sm.state == S.AUTO_REQUESTED:
             self.auto_request_at = None
+            self.replay, self.replay_requested = None, False
             self.sm.to(S.IDLE)
             self._refresh_idle()
 
@@ -678,6 +714,7 @@ class GameEngine:
         if self._auto_timeout_task is not None:
             self._auto_timeout_task.cancel()
         self.auto_request_at = None
+        self.replay, self.replay_requested = None, False
         self.sm.to(S.IDLE)
         self._refresh_idle()
 
@@ -695,6 +732,9 @@ class GameEngine:
             reason = self.why_not()
             if reason is not None:
                 raise GameError(reason)
+        if self.replay is not None:              # approving a replay request
+            self._begin_replay()
+            return
         self.run = {"kind": "robot", "name": "Roboter", "birth_year": None}
         self.result = self.auto_result = None
         self.timer = RunTimer(self.lab.start_gate, self.lab.finish_gate)
@@ -769,6 +809,101 @@ class GameEngine:
         if rest > 0:
             await asyncio.sleep(rest)
         self._end_run()
+
+    # ================================================================== replays
+    def _replay_source(self, run_id: int) -> dict:
+        run = self.db.get_run(run_id)
+        path = self.db.run_path(run_id) if run else None
+        if run is None or path is None:
+            raise GameError("Für diesen Lauf gibt es keine Aufzeichnung.")
+        if self.lab is None or run["labyrinth_id"] != self.lab.id:
+            raise GameError("Dieser Lauf war auf einem anderen Labyrinth.")
+        return {"run_id": run["id"], "name": run["name"], "birth_year": run["birth_year"],
+                "time_ms": run["time_ms"], "status": run["status"], "end": path.get("end", run["status"]),
+                "mode": path.get("mode", run["speed_mode"]), "path": path}
+
+    def replay_data(self, run_id: int) -> dict:
+        """Public: everything a screen needs to replay a run virtually."""
+        source = self._replay_source(run_id)
+        return {key: source[key] for key in ("run_id", "name", "birth_year", "time_ms", "status", "end", "mode")} \
+            | {"path": source["path"]}
+
+    def map_data(self) -> dict | None:
+        """Public: the drawing of the active labyrinth (no admin details)."""
+        if self.lab is None:
+            return None
+        data = self.lab.to_client()
+        return {key: data[key] for key in ("width", "height", "channel", "engraving", "markers",
+                                           "start_gate", "finish_gate", "start_point", "finish_point")}
+
+    async def request_replay(self, run_id: int) -> None:
+        """Stats iPad: a visitor wants to see a run again with the real robot; an admin approves."""
+        source = self._replay_source(run_id)
+        reason = self.why_not()
+        if reason is not None:
+            raise GameError(reason)
+        self.replay, self.replay_requested = source, True
+        self.auto_request_at = time.monotonic()
+        self.sm.to(S.AUTO_REQUESTED)
+        self._auto_timeout_task = asyncio.create_task(self._auto_timeout())
+
+    async def start_replay(self, run_id: int) -> None:
+        """Admin: replay a run with the robot right away."""
+        source = self._replay_source(run_id)
+        reason = self.why_not()
+        if reason is not None:
+            raise GameError(reason)
+        self.replay = source
+        self._begin_replay()
+
+    def _begin_replay(self) -> None:
+        source = self.replay
+        self.replay_requested = False
+        self.run = {"kind": "replay", "name": source["name"], "birth_year": source["birth_year"],
+                    "speed_mode": source["mode"]}
+        self.result = self.auto_result = None
+        self.timer = RunTimer(self.lab.start_gate, self.lab.finish_gate)
+        self.sm.to(S.AUTO_RUN)
+        self._run_task = asyncio.create_task(self._guarded(self._replay_run), name="replay")
+
+    async def _replay_run(self) -> None:
+        """Drive a recorded path again: same rhythm (pauses included), today's walls and speed limits."""
+        lab, timer, source = self.lab, self.timer, self.replay
+        points = source["path"]["points"]
+        speed = self.settings[SPEED_MODES.get(source["mode"], "visitor_speed")]
+        z = self.robot.insert_z()
+        previous = lab.channel.snap((points[0][1], points[0][2]))
+        await self.robot.go_to(previous)
+        began, t_first = time.monotonic(), points[0][0]
+        for t_ms, x, y in points[1:]:
+            lag = began + (t_ms - t_first) / 1000 - time.monotonic()
+            if lag > 0.12:                        # the visitor paused here: pause too
+                await asyncio.sleep(lag - 0.04)
+            target = lab.channel.constrain(previous, (x, y))   # never outside today's allowed area
+            if math.hypot(target[0] - previous[0], target[1] - previous[1]) < 0.05:
+                continue
+            t0 = time.monotonic_ns()
+            await self.robot.move_plate(target[0], target[1], z, speed, self.settings["jog_zone"], "visitor")
+            if timer.feed(previous, target, t0, time.monotonic_ns()):
+                self.notify()
+            previous = target
+        if timer.running:
+            timer.finish_now()
+        self.sm.to(S.RETURNING_HOME)
+        shown_since = time.monotonic()
+        await self.robot.go_home()
+        rest = 3 - (time.monotonic() - shown_since)
+        if rest > 0:
+            await asyncio.sleep(rest)
+        self._end_run()
+
+    def replay_public(self) -> dict | None:
+        source = self.replay
+        if source is None:
+            return None
+        return {"run_id": source["run_id"], "name": source["name"], "time_ms": source["time_ms"],
+                "status": source["status"], "end": source["end"], "mode": source["mode"],
+                "requested": self.replay_requested}
 
     # ============================================================ admin: robot
     @asynccontextmanager
@@ -1060,6 +1195,61 @@ class GameEngine:
             self.robot.home_confirmed = False
             self.robot.at_home = False
 
+    # ====================================================== admin: leaderboard profiles
+    @staticmethod
+    def _profile_name(raw: object) -> str:
+        name = " ".join(str(raw or "").split())
+        if not name:
+            raise GameError("Bitte gib einen Namen für das Profil ein.")
+        if len(name) > PROFILE_NAME_MAX:
+            raise GameError(f"Der Name darf höchstens {PROFILE_NAME_MAX} Zeichen haben.")
+        return name
+
+    def _require_no_visitor_run(self) -> None:
+        if self.run is not None:
+            raise GameError("Während eines Laufs geht das nicht. Warte, bis der Roboter zu Hause ist.")
+
+    def create_profile(self, name: object, activate: bool = False) -> int:
+        profile_id = self.db.add_profile(self._profile_name(name))
+        if activate:
+            self.activate_profile(profile_id)
+        self.notify()
+        return profile_id
+
+    def activate_profile(self, profile_id: int) -> None:
+        if self.db.profile(profile_id) is None:
+            raise GameError("Dieses Profil gibt es nicht.")
+        self._require_no_visitor_run()
+        self.db.activate_profile(profile_id)
+        log.info("Bestenlisten-Profil %d aktiviert", profile_id)
+        self.notify()
+
+    def rename_profile(self, profile_id: int, name: object) -> None:
+        if self.db.profile(profile_id) is None:
+            raise GameError("Dieses Profil gibt es nicht.")
+        self.db.rename_profile(profile_id, self._profile_name(name))
+        self.notify()
+
+    def delete_profile(self, profile_id: int) -> None:
+        profile = self.db.profile(profile_id)
+        if profile is None:
+            raise GameError("Dieses Profil gibt es nicht.")
+        if profile["active"]:
+            raise GameError("Das aktive Profil kann nicht gelöscht werden. Aktiviere zuerst ein anderes.")
+        self.db.delete_profile(profile_id)
+        self.notify()
+
+    def stats(self) -> dict:
+        """Data for the statistics page: every run of the active profile on the active labyrinth."""
+        lab_id = self.lab.id if self.lab else None
+        runs = self.db.stats_runs(lab_id) if lab_id is not None else []
+        return {"profile": self.db.active_profile(), "year": date.today().year,
+                "runs": [{"id": r["id"], "name": r["name"], "birth_year": r["birth_year"],
+                          "time_ms": r["time_ms"], "status": r["status"], "mode": r["speed_mode"],
+                          "at": r["created_at"], "replay": bool(r["replay"])} for r in runs],
+                "boards": self.board.boards(lab_id), "robot_best_ms": self.board.robot_best(lab_id),
+                "speeds": self.speeds()}
+
     # ====================================================== admin: leaderboard
     def delete_run(self, run_id: int) -> None:
         self.db.delete_run(run_id)
@@ -1102,7 +1292,11 @@ class GameEngine:
             "wall_hit": self.wall_hit,
             "speed_mode": self.run.get("speed_mode", "normal") if self.run else self.speed_mode,
             "speeds": self.speeds(),
+            "sound": {"on": self.settings["sound"] == "on", "volume": self.settings["sound_volume"]},
             "can_start": self.why_not() is None, "labyrinth_rev": self.lab_rev,
+            "display": {"theme": self.settings["visitor_theme"], "rotate_s": self.settings["board_rotate_s"]},
+            "profile": self.db.active_profile(), "runs_rev": self.db.runs_revision(),
+            "replay": self.replay_public(),
         }
 
     def admin_snapshot(self) -> dict:
@@ -1130,6 +1324,7 @@ class GameEngine:
                              and self._still_at_approach(robot.commanded) else None),
             "tool": self.db.get_setting("tool", DEFAULT_TOOL), "home_joints": robot.home_joints,
             "settings": self.settings.all(),
+            "profiles": self.db.profiles(),
             "active_labyrinth": ({"id": self.lab.id, "name": self.lab.name, "ready": self.lab.ready,
                                   "size": [self.lab.geometry.width, self.lab.geometry.height]}
                                  if self.lab else None),

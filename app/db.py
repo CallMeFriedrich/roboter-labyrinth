@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS labyrinths(
 CREATE TABLE IF NOT EXISTS runs(
     id INTEGER PRIMARY KEY, labyrinth_id INTEGER, name TEXT, birth_year INTEGER,
     time_ms INTEGER, status TEXT CHECK(status IN ('finished','aborted')),
-    created_at TEXT, deleted INTEGER DEFAULT 0, speed_mode TEXT DEFAULT 'normal');
+    created_at TEXT, deleted INTEGER DEFAULT 0, speed_mode TEXT DEFAULT 'normal',
+    profile_id INTEGER);
+CREATE TABLE IF NOT EXISTS run_paths(run_id INTEGER PRIMARY KEY, data TEXT);
+CREATE TABLE IF NOT EXISTS profiles(
+    id INTEGER PRIMARY KEY, name TEXT, created_at TEXT, active INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS robot_runs(
     id INTEGER PRIMARY KEY, labyrinth_id INTEGER, time_ms INTEGER, speed REAL,
     timing_method TEXT, created_at TEXT);
@@ -29,6 +33,10 @@ CREATE TABLE IF NOT EXISTS calibration(
     wobj TEXT, tool TEXT, active INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS runs_board ON runs(labyrinth_id, status, deleted, time_ms);
 """
+
+# Every leaderboard query only sees the runs of the active leaderboard profile.
+ACTIVE_PROFILE = "(SELECT id FROM profiles WHERE active=1 ORDER BY id LIMIT 1)"
+PROFILE_NAME_MAX = 40
 
 
 def _now() -> str:
@@ -54,6 +62,17 @@ class Database:
             if "speed_mode" not in columns:
                 self._conn.execute("ALTER TABLE runs ADD COLUMN speed_mode TEXT DEFAULT 'normal'")
                 self._conn.execute("UPDATE runs SET speed_mode='normal' WHERE speed_mode IS NULL")
+            if "profile_id" not in columns:
+                self._conn.execute("ALTER TABLE runs ADD COLUMN profile_id INTEGER")
+            # There is always exactly one active leaderboard profile.
+            if self._conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] == 0:
+                self._conn.execute("INSERT INTO profiles(name, created_at, active) VALUES('Standard', ?, 1)",
+                                   (_now(),))
+            if self._conn.execute("SELECT COUNT(*) FROM profiles WHERE active=1").fetchone()[0] != 1:
+                first = self._conn.execute("SELECT MIN(id) FROM profiles").fetchone()[0]
+                self._conn.execute("UPDATE profiles SET active=(id=?)", (first,))
+            # Runs from before profiles existed belong to the active profile.
+            self._conn.execute(f"UPDATE runs SET profile_id={ACTIVE_PROFILE} WHERE profile_id IS NULL")
 
     def close(self) -> None:
         self._conn.close()
@@ -140,35 +159,40 @@ class Database:
     def add_run(self, labyrinth_id: int, name: str, birth_year: int, time_ms: int | None,
                 status: str, speed_mode: str = "normal") -> int:
         return self._exec(
-            "INSERT INTO runs(labyrinth_id, name, birth_year, time_ms, status, created_at, speed_mode) "
-            "VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO runs(labyrinth_id, name, birth_year, time_ms, status, created_at, speed_mode, "
+            f"profile_id) VALUES(?,?,?,?,?,?,?,{ACTIVE_PROFILE})",
             (labyrinth_id, name, birth_year, time_ms, status, _now(), speed_mode)).lastrowid
 
     def top_runs(self, labyrinth_id: int, limit: int = 10, speed_mode: str = "normal") -> list[dict]:
         """Best finished runs of one speed mode (every mode has its own board)."""
         rows = self._all(
             "SELECT id, name, birth_year, time_ms FROM runs WHERE labyrinth_id=? AND "
-            "status='finished' AND deleted=0 AND speed_mode=? ORDER BY time_ms, id LIMIT ?",
+            "status='finished' AND deleted=0 AND speed_mode=? "
+            f"AND profile_id={ACTIVE_PROFILE} ORDER BY time_ms, id LIMIT ?",
             (labyrinth_id, speed_mode, limit))
         return [dict(r) for r in rows]
 
     def placement(self, labyrinth_id: int, run_id: int) -> tuple[int, int] | None:
         """(rank, total) of a finished run among the finished runs of the same speed mode."""
-        run = self._one("SELECT time_ms, speed_mode FROM runs WHERE id=? AND status='finished' "
-                        "AND deleted=0", (run_id,))
+        run = self._one("SELECT time_ms, speed_mode, profile_id FROM runs WHERE id=? AND "
+                        "status='finished' AND deleted=0", (run_id,))
         if run is None:
             return None
         mode = run["speed_mode"]
-        base = "FROM runs WHERE labyrinth_id=? AND status='finished' AND deleted=0 AND speed_mode=?"
+        base = ("FROM runs WHERE labyrinth_id=? AND status='finished' AND deleted=0 AND speed_mode=? "
+                "AND profile_id=?")
         better = self._one(f"SELECT COUNT(*) AS n {base} AND (time_ms < ? OR (time_ms = ? AND id < ?))",
-                           (labyrinth_id, mode, run["time_ms"], run["time_ms"], run_id))["n"]
-        total = self._one(f"SELECT COUNT(*) AS n {base}", (labyrinth_id, mode))["n"]
+                           (labyrinth_id, mode, run["profile_id"], run["time_ms"], run["time_ms"],
+                            run_id))["n"]
+        total = self._one(f"SELECT COUNT(*) AS n {base}", (labyrinth_id, mode, run["profile_id"]))["n"]
         return better + 1, total
 
     def list_runs(self, labyrinth_id: int, search: str = "", limit: int = 500) -> list[dict]:
         rows = self._all(
-            "SELECT id, name, birth_year, time_ms, status, created_at, speed_mode FROM runs "
-            "WHERE labyrinth_id=? AND deleted=0 AND name LIKE ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, name, birth_year, time_ms, status, created_at, speed_mode, "
+            "EXISTS(SELECT 1 FROM run_paths p WHERE p.run_id = runs.id) AS replay FROM runs "
+            f"WHERE labyrinth_id=? AND deleted=0 AND profile_id={ACTIVE_PROFILE} AND name LIKE ? "
+            "ORDER BY id DESC LIMIT ?",
             (labyrinth_id, f"%{search}%", limit))
         return [dict(r) for r in rows]
 
@@ -176,7 +200,78 @@ class Database:
         self._exec("UPDATE runs SET deleted=1 WHERE id=?", (run_id,))
 
     def reset_runs(self, labyrinth_id: int) -> None:
-        self._exec("UPDATE runs SET deleted=1 WHERE labyrinth_id=?", (labyrinth_id,))
+        self._exec(f"UPDATE runs SET deleted=1 WHERE labyrinth_id=? AND profile_id={ACTIVE_PROFILE}",
+                   (labyrinth_id,))
+
+    def stats_runs(self, labyrinth_id: int) -> list[dict]:
+        """All runs (finished and aborted) of the active profile, for the statistics page."""
+        rows = self._all(
+            "SELECT id, name, birth_year, time_ms, status, speed_mode, created_at, "
+            "EXISTS(SELECT 1 FROM run_paths p WHERE p.run_id = runs.id) AS replay FROM runs "
+            f"WHERE labyrinth_id=? AND deleted=0 AND profile_id={ACTIVE_PROFILE} ORDER BY id",
+            (labyrinth_id,))
+        return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------- replays
+    def save_run_path(self, run_id: int, data: dict) -> None:
+        self._exec("INSERT OR REPLACE INTO run_paths(run_id, data) VALUES(?, ?)",
+                   (run_id, json.dumps(data, separators=(",", ":"))))
+
+    def run_path(self, run_id: int) -> dict | None:
+        row = self._one("SELECT data FROM run_paths WHERE run_id=?", (run_id,))
+        return _loads(row["data"]) if row else None
+
+    def get_run(self, run_id: int) -> dict | None:
+        row = self._one("SELECT id, labyrinth_id, name, birth_year, time_ms, status, speed_mode, created_at "
+                        "FROM runs WHERE id=? AND deleted=0", (run_id,))
+        return dict(row) if row else None
+
+    def runs_revision(self) -> str:
+        """Changes whenever a run is added or deleted or the profile changes (cheap)."""
+        row = self._one(f"SELECT COUNT(*) AS n, IFNULL(MAX(id), 0) AS m, IFNULL(SUM(deleted), 0) AS d, "
+                        f"{ACTIVE_PROFILE} AS p FROM runs")
+        return f"{row['p']}-{row['n']}-{row['m']}-{row['d']}"
+
+    def export_runs(self, profile_id: int) -> list[dict]:
+        """Every run of one profile (without deleted ones), with the labyrinth name."""
+        rows = self._all(
+            "SELECT r.id, r.labyrinth_id, l.name AS labyrinth, r.name, r.birth_year, r.time_ms, r.status, "
+            "r.speed_mode, r.created_at FROM runs r LEFT JOIN labyrinths l ON l.id = r.labyrinth_id "
+            "WHERE r.profile_id=? AND r.deleted=0 ORDER BY r.id", (profile_id,))
+        return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------- profiles
+    def profiles(self) -> list[dict]:
+        rows = self._all(
+            "SELECT p.id, p.name, p.created_at, p.active, "
+            "(SELECT COUNT(*) FROM runs r WHERE r.profile_id=p.id AND r.deleted=0 AND r.status='finished') "
+            "AS runs FROM profiles p ORDER BY p.id")
+        return [{**dict(r), "active": bool(r["active"])} for r in rows]
+
+    def active_profile(self) -> dict:
+        row = self._one(f"SELECT id, name FROM profiles WHERE id={ACTIVE_PROFILE}")
+        return dict(row)
+
+    def profile(self, profile_id: int) -> dict | None:
+        row = self._one("SELECT id, name, active FROM profiles WHERE id=?", (profile_id,))
+        return dict(row) if row else None
+
+    def add_profile(self, name: str) -> int:
+        return self._exec("INSERT INTO profiles(name, created_at, active) VALUES(?, ?, 0)",
+                          (name, _now())).lastrowid
+
+    def rename_profile(self, profile_id: int, name: str) -> None:
+        self._exec("UPDATE profiles SET name=? WHERE id=?", (name, profile_id))
+
+    def activate_profile(self, profile_id: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE profiles SET active=(id=?)", (profile_id,))
+
+    def delete_profile(self, profile_id: int) -> None:
+        """Removes a profile and its runs for good (never the active one; checked by the caller)."""
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM runs WHERE profile_id=?", (profile_id,))
+            self._conn.execute("DELETE FROM profiles WHERE id=? AND active=0", (profile_id,))
 
     # -------------------------------------------------------------- robot runs
     def add_robot_run(self, labyrinth_id: int, time_ms: int, speed: float, timing_method: str) -> int:
