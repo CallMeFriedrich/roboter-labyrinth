@@ -41,6 +41,7 @@ IDLE_ONLY_SETTINGS = GEOMETRY_SETTINGS | {"driver", "viewer_side", "tool_roll_de
 SEED_SVG = ROOT / "tests" / "data" / "Labyrinth_Deckplatte_Entwurf1.svg"
 ORIENTATION_TOLERANCE_DEG = 1.0   # head orientation may differ this much between holes
 HOLE_APPROACH_CLEARANCE = 20.0    # mm in front of a predicted hole: the pen never hits the plate
+WALL_ABORT_SLACK = 0.3          # mm: the slide along the limit counts as reaching it
 HOLE_NEAR_CLEARANCE = 2.0         # "Näher ran": stop this far in front, the rest by hand
 
 
@@ -78,6 +79,7 @@ class GameEngine:
         self.auto_result: dict | None = None
         self.auto_request_at: float | None = None
         self.message = ""                       # last problem, shown in the admin panel
+        self.notice: str | None = None          # short visitor message while the robot goes back
         self.cycle_ms = 0.0
         self.paused = False                     # admin hold: visitors may not start new runs
 
@@ -282,7 +284,7 @@ class GameEngine:
         if runtime.channel is None or not (runtime.start_gate and runtime.finish_gate):
             raise GameError("Bitte zuerst Start, Ziel und beide Linien festlegen.")
         try:
-            path = plan_path(runtime.channel.allowed, self.settings["auto_extra_margin"],
+            path = plan_path(runtime.auto_channel.allowed, self.settings["auto_extra_margin"],
                              runtime.start_point, runtime.finish_point,
                              runtime.start_gate, runtime.finish_gate)
         except PathError as exc:
@@ -500,6 +502,7 @@ class GameEngine:
 
         finished = asyncio.Event()
         z = self.robot.insert_z()
+        wall_hit: list[float] = []
 
         def on_segment(p0, p1, t0_ns, t1_ns) -> None:
             event = timer.feed(p0, p1, t0_ns, t1_ns)
@@ -509,6 +512,12 @@ class GameEngine:
                 jog.stop()
                 finished.set()
             self.cycle_ms = jog.cycle_ms
+            limit = self.settings["wall_abort_depth"]
+            if limit > 0 and not finished.is_set() and not wall_hit:
+                depth = lab.channel.wall_depth(p1)
+                if depth >= limit - WALL_ABORT_SLACK:
+                    wall_hit.append(depth)
+                    jog.stop()
 
         async def move(p) -> None:
             await self.robot.move_plate(p[0], p[1], z, self.settings["visitor_speed"],
@@ -527,6 +536,9 @@ class GameEngine:
             if not jog_task.done():
                 jog_task.cancel()
                 await asyncio.gather(jog_task, return_exceptions=True)
+        if wall_hit:
+            await self._wall_out(run, wall_hit[0])
+            return
         if not finished.is_set():
             raise GameError("Die Steuerung wurde unerwartet beendet.")
 
@@ -542,7 +554,24 @@ class GameEngine:
             await asyncio.sleep(rest)
         self._end_run()
 
+    async def _wall_out(self, run: dict, depth: float) -> None:
+        """Pen too deep in a wall: the run is over, no time, back home."""
+        log.info("Lauf von %s beendet: %.1f mm in der Wand", run["name"], depth)
+        self.keys.clear()
+        if self.lab is not None:
+            self.board.add_aborted(self.lab.id, run["name"], run["birth_year"])
+        self.notice = "Zu tief in der Wand – der Lauf ist vorbei."
+        self.sm.to(S.ABORTING)
+        shown_since = time.monotonic()
+        self.sm.to(S.RETURNING_HOME)
+        await self.robot.go_home()
+        rest = self.settings["result_display_s"] - (time.monotonic() - shown_since)
+        if rest > 0:
+            await asyncio.sleep(rest)
+        self._end_run()
+
     def _end_run(self) -> None:
+        self.notice = None
         self.run = self.timer = self.result = self.auto_result = None
         self.sm.to(S.IDLE)
         self._refresh_idle()
@@ -1019,7 +1048,7 @@ class GameEngine:
             "robot_best_ms": self.board.robot_best(labyrinth_id),
             "auto_request": ({"age_ms": round((time.monotonic() - self.auto_request_at) * 1000)}
                              if self.auto_request_at is not None and state == S.AUTO_REQUESTED else None),
-            "result": self.result, "auto_result": self.auto_result,
+            "result": self.result, "auto_result": self.auto_result, "notice": self.notice,
             "can_start": self.why_not() is None, "labyrinth_rev": self.lab_rev,
         }
 

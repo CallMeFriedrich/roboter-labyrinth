@@ -121,7 +121,9 @@ SETTING_DEFS: dict[str, NumberDef | ChoiceDef] = {
     "jog_rate_hz": NumberDef(25, 10, 50, unit="Hz"),
     "jog_zone": ChoiceDef("z1", ("z0", "z1", "z5")),
     "pin_diameter": NumberDef(8, 1, 14, unit="mm"),
-    "wall_tolerance": NumberDef(1.0, -1, 3, unit="mm"),
+    "wall_tolerance": NumberDef(1.0, -10, 3, unit="mm"),
+    # The run ends when the pen edge is this deep in a wall (commanded position). 0 = off.
+    "wall_abort_depth": NumberDef(0, 0, 20, unit="mm"),
     "auto_extra_margin": NumberDef(1.5, 0, 5, unit="mm"),
     "insert_depth": NumberDef(5, 0, 20, unit="mm"),
     "retract_distance": NumberDef(30, 10, 100, unit="mm"),

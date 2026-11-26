@@ -825,10 +825,13 @@ sections.game = { title: "Spiel", build(root) {
     sliderCell("jog_rate_hz", "Takt der Steuerung", { step: 1 }),
     choiceCell("jog_zone", "Zone beim Steuern", [
       { value: "z0", label: "z0" }, { value: "z1", label: "z1" }, { value: "z5", label: "z5" }]),
-    stepperCell("wall_tolerance", "Wandtoleranz", { step: 0.1, digits: 1,
-      sub: "Abstand zur Wand. Negativ = Stift darf die Wand leicht berühren" }),
+    stepperCell("wall_tolerance", "Wandtoleranz", { step: 0.5, digits: 1,
+      sub: "Abstand zur Wand. Negativ = so viele mm darf der Stift in die Wand drücken" }),
+    stepperCell("wall_abort_depth", "Abbruch bei Wandtiefe", { step: 0.5, digits: 1,
+      sub: "Lauf endet, wenn der Stift so tief in der Wand ist. 0 = aus" }),
     stepperCell("auto_extra_margin", "Reserve im Auto-Lauf", { step: 0.5, digits: 1 }),
-  ], "Wandtoleranz und Reserve berechnen die befahrbare Fläche und den kürzesten Weg neu.").node);
+  ], "Wandtoleranz und Reserve berechnen die befahrbare Fläche neu. Der Auto-Lauf bleibt immer frei von den Wänden. "
+    + "Damit der Abbruch greift, muss er höchstens so groß sein wie die negative Wandtoleranz (z. B. Toleranz −10, Abbruch 10).").node);
 
   root.append(group("Ablauf", [
     stepperCell("countdown_s", "Countdown", { sub: "0 = aus" }),

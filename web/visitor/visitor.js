@@ -145,8 +145,9 @@ function statusText(s) {
     case "AUTO_REQUESTED": return "Ein Betreuer gibt den Roboter gleich frei …";
     case "AUTO_RUN": return "Der Roboter fährt den kürzesten Weg.";
     case "FINISHED": return s.result ? s.result.name : "";
-    case "ABORTING": return "Der Roboter fährt zurück …";
+    case "ABORTING": return s.notice || "Der Roboter fährt zurück …";
     case "RETURNING_HOME":
+      if (s.notice) return s.notice;
       if (s.result) return s.result.name;
       if (s.auto_result) return "Das war der kürzeste Weg.";
       return "Der Roboter fährt zurück …";

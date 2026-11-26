@@ -38,10 +38,16 @@ class LabyrinthRuntime:
         self._load_gates(record)
 
         self.channel: Channel | None = None
+        self.auto_channel: Channel | None = None    # the robot's own run never touches a wall
         try:
             self.channel = Channel(self.geometry.channel, pin_diameter, wall_tolerance, self.start_point)
+            self.auto_channel = (self.channel if wall_tolerance >= 0 else
+                                 Channel(self.geometry.channel, pin_diameter, 0.0, self.start_point))
         except ValueError as exc:
             self.warnings.append(str(exc))
+        if self.channel is not None and self.channel.bridged_walls():
+            self.warnings.append("Bei dieser Wandtoleranz liegen Gänge so nah beieinander, dass der Stift "
+                                 "rechnerisch durch eine dünne Wand fahren könnte.")
         needed = pin_diameter + 2 * wall_tolerance
         if self.min_width < needed:
             self.warnings.append(

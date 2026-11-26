@@ -157,11 +157,15 @@ Das Tool sagt dem Roboter, wo die Stiftspitze ist und wohin der Stift zeigt. **z
 
 > **Für die Software zählt nur der Wert am Tablet** (Einmessen → Werkzeug). Das Tool im Pendant dient zum Ermitteln und Kontrollieren.
 
-**Aktuelle Werte** (25.11.2026, Stift rechtwinklig in der gedruckten Halterung):
+**Aktuelle Werte** (26.11.2026, Endschalter mit Federstab, rechtwinklig zum Flansch, gemessen):
 
 | x | y | z | q1 | q2 | q3 | q4 |
 |---|---|---|---|---|---|---|
-| −110 | 0 | 30 | 0,7071 | 0 | −0,7071 | 0 |
+| −140 | 0 | 30 | 0,7071068 | 0 | −0,7071068 | 0 |
+
+Vorher (bis 25.11., Schraubendreher in der gedruckten Halterung): −110 / 0 / 30, gleiche Drehung.
+
+Der Federstab ist biegsam: beim Einmessen die Bohrungen nur berühren, nicht drücken.
 
 ### 6.1 Weg A: ausmessen
 

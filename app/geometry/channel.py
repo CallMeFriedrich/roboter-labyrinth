@@ -65,6 +65,27 @@ class Channel:
         shapely.prepare(self.allowed)
         shapely.prepare(self._check)
 
+    def wall_depth(self, p: Point2) -> float:
+        """How deep the pen edge is in a wall (mm). Negative = still that much room."""
+        pt = Point(p)
+        distance = float(self.channel.boundary.distance(pt))
+        inside = distance if self.channel.covers(pt) else -distance
+        return self.pin_diameter / 2.0 - inside
+
+    def bridged_walls(self) -> bool:
+        """With a negative tolerance: are there walls thin enough to be driven through?"""
+        grow = -self.inset
+        if grow <= 0:
+            return False
+        # Walls thinner than 2 × grow vanish when they are opened by grow. Rounded inner
+        # corners lose a little too (≤ 0.22 grow² each), so only bigger pieces count.
+        minx, miny, maxx, maxy = self.channel.bounds
+        margin = 3 * grow
+        walls = shapely.box(minx - margin, miny - margin, maxx + margin, maxy + margin).difference(self.channel)
+        opened = walls.buffer(-grow, join_style="round").buffer(grow, join_style="round")
+        thin = walls.difference(opened)
+        return any(part.area > 1.5 * grow * grow for part in _polygons(thin))
+
     @property
     def is_split(self) -> bool:
         return bool(self.lost)
