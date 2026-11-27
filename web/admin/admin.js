@@ -925,17 +925,51 @@ sections.dashboard = { title: "Dashboard", build(root) {
                                                onclick: () => cmd("sound_test", { name }) });
   root.append(group("Töne", [
     choiceCell("sound", "Töne", [{ value: "on", label: "An" }, { value: "off", label: "Aus" }],
-      "Am Besucher-Bildschirm: Ziel erreicht, neue Bestzeit, Wand berührt, Aufgeben"),
+      "Am Besucher-Bildschirm: Countdown 3 · 2 · 1 · Los, Ziel, neue Bestzeit, Wand berührt, Aufgeben"),
     sliderCell("sound_volume", "Lautstärke", { step: 5 }),
     el("li", { class: "cell" }, el("span", { class: "cell-label", text: "Testen" }),
       el("span", { class: "cell-row sound-tests" },
-        test("win", "Ziel"), test("record", "Bestzeit"), test("wall", "Wand"), test("giveup", "Aufgeben"))),
+        test("win", "Ziel"), test("record", "Bestzeit"), test("wall", "Wand"), test("giveup", "Aufgeben"), test("tick", "3·2·1"), test("go", "Los"))),
   ], "Der Ton kommt aus dem Laptop am Besucher-Bildschirm. Zusätzlich gilt die Windows-Lautstärke.").node);
 
   root.append(group("Ablauf", [
     stepperCell("countdown_s", "Countdown", { sub: "0 = aus" }),
     stepperCell("result_display_s", "Ergebnis anzeigen"),
   ]).node);
+
+  // Idle show: big calm movements when nobody plays.
+  const checked = valueCell("Geprüfte Bewegungen", "Abstand zu Platte und Tisch mindestens 8 cm");
+  const showButton = actionCell("Jetzt vorführen", async () => {
+    if (S.admin.show?.running) { cmd("show_stop"); return; }
+    if (await confirmSheet({ title: "Show jetzt vorführen?", action: "Roboter bewegt sich", destructive: false,
+      text: "Der Arm macht ein paar große Bewegungen und fährt danach Home. Der Bereich um den Roboter muss frei sein." })) {
+      cmd("show_start");
+    }
+  });
+  root.append(group("Leerlauf-Show", [
+    choiceCell("idle_show", "Automatisch", [{ value: "on", label: "An" }, { value: "off", label: "Aus" }],
+      "Spielt eine Weile niemand, bewegt sich der Arm von selbst – ohne Pause, bis jemand kommt"),
+    choiceCell("idle_show_style", "Bewegungen", [{ value: "full", label: "Ausgestreckt" }, { value: "compact", label: "Kompakt" }],
+      "Ausgestreckt: mit ganz nach oben und links/rechts ausstrecken (braucht ca. 70 cm). Kompakt: bleibt nah am Roboter (ca. 52 cm)"),
+    sliderCell("idle_show_scale_full", "Größe: Ausgestreckt", { step: 5, sub: "100 % = volle Figuren, 50 % = jede Achse schwenkt nur halb so weit" }),
+    sliderCell("idle_show_scale_compact", "Größe: Kompakt", { step: 5 }),
+    stepperCell("idle_show_min", "Startet nach", { sub: "Minuten ohne Spiel" }),
+    sliderCell("idle_show_speed", "Tempo der Show", { step: 10 }),
+    stepperCell("idle_show_radius", "Freier Umkreis", { step: 5, sub: "So weit darf der Arm vom Roboter weg. Ganz ausgestreckt braucht er 70 cm" }),
+    checked.node, showButton.node,
+  ], "Jede Bewegung wird vorher mit der Einmessung, dem Tool und der Home-Position berechnet. Nur Bewegungen mit "
+    + "mindestens 8 cm Abstand zur Platte und zum Tisch werden gefahren, und nur so weit, wie der freie Umkreis erlaubt. "
+    + "Startet jemand ein Spiel oder tippt am Besucher-Bildschirm, beendet der Arm die aktuelle Bewegung und fährt sofort Home. "
+    + "„Jetzt vorführen“ spielt die Show einmal ab. "
+    + "Erst am Roboter mit niedrigem Tempo ausprobieren, Hand am Not-Halt.").node);
+  updaters.push((s) => {
+    const show = s.admin.show || {};
+    const homeBlocked = show.total === 1 && show.safe === 0;   // home itself is too close: no show at all
+    checked.set(!show.total ? "erst einmessen" : homeBlocked ? "Home zu nah an der Platte" : `${show.safe} von ${show.total} frei`,
+      show.total && show.safe === show.total ? "good" : show.total ? "bad" : null);
+    checked.node.title = (show.skipped || []).join("\n");
+    showButton.button.textContent = show.running ? "Show stoppen" : "Jetzt vorführen";
+  });
 
   const address = valueCell("Adresse am iPad");
   root.append(group("Statistik-Seite", [address.node],

@@ -175,7 +175,7 @@ Werkzeug-Versatz, Stiftdurchmesser, Eintauchtiefe, Rückzug und Besucherseite st
 - Die Zeit startet an der Startlinie und stoppt an der Ziellinie. Danach fährt der Roboter Home.
 - **Aufgeben** ist jederzeit möglich (zweimal klicken). Es gibt keinen Eintrag.
 - Auf dem Tablet zeigt die **Übersicht** die Live-Karte. **Lauf abbrechen** wirkt mit einem Tipp.
-- **Töne:** Der Besucher-Bildschirm spielt einen Ton bei Ziel, neuer Bestzeit, Wandberührung und Aufgeben. Unter **Spiel → Töne** lassen sie sich ausschalten, die Lautstärke einstellen und jeder Ton testen. Der Ton kommt aus dem Laptop; zusätzlich gilt die Windows-Lautstärke.
+- **Töne:** Der Besucher-Bildschirm piept beim Countdown (3 · 2 · 1 · Los) und spielt einen Ton bei Ziel, neuer Bestzeit, Wandberührung und Aufgeben. Unter **Spiel → Töne** lassen sie sich ausschalten, die Lautstärke einstellen und jeder Ton testen. Der Ton kommt aus dem Laptop; zusätzlich gilt die Windows-Lautstärke.
 
 ### 5.3a Dashboard, Profile, Export und Statistik
 
@@ -191,6 +191,16 @@ Werkzeug-Versatz, Stiftdurchmesser, Eintauchtiefe, Rückzug und Besucherseite st
 - Alles auf dem Statistik-iPad kehrt von selbst zur Startansicht zurück: 45 s ohne Berührung, 12 s nach dem Ende einer Wiedergabe, 5 s nach einer Anfrage.
 - **Admin → Bestenliste:** Bei jedem Lauf **Ansehen** (virtuell) und **Am Roboter** (startet sofort nach Bestätigung).
 - Der Roboter fährt den aufgezeichneten Weg mit dem damaligen Tempo (heutiger Wert in mm/s) und den Pausen nach – immer begrenzt auf die **heutige** befahrbare Fläche und die Besucher-Geschwindigkeitsgrenzen. Eine Wiederholung erzeugt keinen Eintrag und lässt sich wie jeder Lauf mit **Lauf abbrechen** stoppen.
+
+### 5.3c Leerlauf-Show
+
+- Spielt für eine einstellbare Zeit niemand (**Dashboard → Leerlauf-Show → Startet nach**, Standard 5 min), macht der Arm ein paar große, ruhige Bewegungen: aufrichten, nach links und rechts schauen, ganz nach oben strecken, links und rechts ganz ausstrecken (volle Spannweite), nicken, winken, Stift drehen – und das **ohne Pause in Dauerschleife**, bis jemand spielt, am Besucher-Bildschirm tippt oder der Admin sie stoppt; dann fährt er über die aufrechte Stellung Home. **Jetzt vorführen** spielt die Show einmal ab, auch wenn „Automatisch“ aus ist.
+- **Sicherheit:** Jede Bewegung wird vorher aus Home-Position, Tool und Einmessung berechnet (Vorwärtskinematik des IRB 120, 24 Prüfpunkte pro Bewegung entlang Arm, Halter und Stift). Gefahren werden nur Bewegungen mit mindestens **8 cm Abstand** zur Platte (inkl. Ständer darunter und Raum dahinter) und zum Tisch, innerhalb der Achsbereiche (10° Reserve) und nur innerhalb des **freien Umkreises** (Einstellung, Standard 75 cm). Ganz ausgestreckt braucht der Arm etwa 70 cm; ist der Umkreis kleiner, werden diese Figuren ausgelassen. **Im eingestellten Umkreis darf nichts stehen** (Laptop, Monitor, Absperrung). Ohne Einmessung oder mit zu wenigen freien Bewegungen startet keine Show. Das Admin-Panel zeigt „x von y frei“.
+- **Bewegungen:** „Ausgestreckt“ zeigt die volle Spannweite (ganz nach oben, links und rechts ganz aus; braucht ca. 70 cm Umkreis). „Kompakt“ ist die ruhigere Variante ohne Ausstrecken, der Arm bleibt im Umkreis von etwa 52 cm.
+- Startet ein Besucher, fragt jemand einen Auto-Lauf/eine Wiederholung an oder bewegt der Admin den Roboter, beendet der Arm die aktuelle Bewegung und fährt sofort Home.
+- **Größe:** Für jede Variante getrennt einstellbar (10–100 %). Alle Figuren werden um die aufrechte Haltung verkleinert – bei 50 % schwenkt jede Achse nur halb so weit. Da die Endlagen im Controller eng und nicht genau bekannt sind: klein anfangen (z. B. 30 %) und in RobotStudio langsam erhöhen, bis eine Endlage meldet; dann eine Stufe zurück.
+- **Achsgrenzen:** Die Show rechnet mit den Grenzen aus `config.toml` (`joint_limits`, Grad, 10° Reserve). Im Controller sind eigene, engere Endlagen einprogrammiert – diese Werte dort eintragen (Konfiguration → Motion → Arm → rob1_1 … rob1_6, „Lower/Upper Joint Bound“ in Radiant × 57,2958). Figuren, die nicht hineinpassen, werden ausgelassen.
+- Standardmäßig **aus**. Vor dem ersten Einsatz am Roboter mit niedrigem Tempo (z. B. 30 mm/s) ausprobieren, Hand am Not-Halt, Bereich um den Roboter frei.
 
 ### 5.4 Auto-Lauf
 
@@ -273,6 +283,13 @@ Quaternionen bei ABB: `[q1, q2, q3, q4] = [w, x, y, z]`.
 | Lautstärke | 70 % | 0–100 % |
 | Darstellung Besucher/Statistik | Dunkel | Dunkel, Hell |
 | Bestenliste wechseln alle | 8 s | 0–60 s (0 = aus) |
+| Leerlauf-Show | aus | an, aus |
+| Show startet nach | 5 min | 1–120 min |
+| Tempo der Show | 100 mm/s | 20–250 mm/s |
+| Freier Umkreis | 75 cm | 40–100 cm |
+| Bewegungen der Show | Ausgestreckt | Ausgestreckt, Kompakt |
+| Größe: Ausgestreckt | 50 % | 10–100 % |
+| Größe: Kompakt | 100 % | 10–100 % |
 | Besucherseite | gegenüber | gegenüber, Roboterseite |
 | Zeitmessung Auto-Lauf | Halt an Linien | LOGGER, Halt an Linien, berechnet |
 

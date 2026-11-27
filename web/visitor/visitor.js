@@ -111,6 +111,8 @@ function showCount(text) {
   const node = $("countdown");
   if (countdownShown === text) return;
   countdownShown = text;
+  // Beep with every number so the visitor can watch the robot instead of the screen.
+  if (control) sound.play(text === "Los" ? "go" : "tick");
   stage.classList.add("is-counting");
   node.hidden = false;
   node.textContent = text;
@@ -145,7 +147,9 @@ function runCountdown(remainingMs) {
 // ------------------------------------------------------------------- render
 function statusText(s) {
   switch (s.state) {
-    case "IDLE": return s.can_start ? "Steuere den Roboterarm durchs Labyrinth." : "Gleich geht es weiter.";
+    case "IDLE":
+      if (s.show) return "Der Roboter vertreibt sich die Zeit. Trag dich ein – er kommt sofort zurück.";
+      return s.can_start ? "Steuere den Roboterarm durchs Labyrinth." : "Gleich geht es weiter.";
     case "MOVING_TO_START": return "Der Roboter fährt zum Start …";
     case "COUNTDOWN": return "Mach dich bereit.";
     case "ARMED": return "Die Zeit läuft ab der Startlinie.";
@@ -418,7 +422,12 @@ function armFormIdle() {
   formIdleTimer = setTimeout(() => { clearForm(); chooseSpeed("normal"); }, FORM_IDLE_MS);
 }
 
-$("form").addEventListener("input", () => { showFormError(""); touch(); armFormIdle(); });
+let lastTouchSent = 0;
+$("form").addEventListener("input", () => {
+  showFormError(""); touch(); armFormIdle();
+  // Tell the server that somebody is here (restarts the idle-show clock), at most every 5 s.
+  if (performance.now() - lastTouchSent > 5000) { lastTouchSent = performance.now(); socket.send({ type: "touch" }); }
+});
 $("year").addEventListener("input", (event) => {
   event.target.value = event.target.value.replace(/\D/g, "").slice(0, 4);
 });

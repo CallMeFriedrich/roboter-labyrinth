@@ -24,6 +24,11 @@ ping_interval_s = 2.0
 home_joints = [0.0, 45.0, 0.0, 0.0, -45.0, 0.0]
 # Speed for joint moves to/from home, mm/s (TCP) and deg/s.
 home_speed = 100.0
+# Achsgrenzen [min, max] in Grad fuer Achse 1 bis 6, so wie sie im Controller eingestellt sind
+# (FlexPendant/RobotStudio: Konfiguration -> Motion -> Arm -> rob1_1 ... rob1_6,
+#  "Lower/Upper Joint Bound" in Radiant: Grad = Radiant * 57.2958).
+# Die Leerlauf-Show faehrt nur Bewegungen, die mit 10 Grad Reserve darin bleiben.
+joint_limits = [[-165, 165], [-110, 110], [-110, 70], [-160, 160], [-120, 120], [-400, 400]]
 # Speed for manual jogging from the admin panel, mm/s.
 admin_jog_speed = 20.0
 
@@ -51,6 +56,11 @@ wall_tolerance = [-30.0, 10.0]
 wall_abort_depth = [0.0, 50.0]
 sound_volume = [0.0, 100.0]
 board_rotate_s = [0.0, 60.0]
+idle_show_min = [1.0, 120.0]
+idle_show_speed = [20.0, 250.0]
+idle_show_radius = [40.0, 100.0]
+idle_show_scale_full = [10.0, 100.0]
+idle_show_scale_compact = [10.0, 100.0]
 auto_extra_margin = [0.0, 5.0]
 insert_depth = [0.0, 20.0]
 retract_distance = [10.0, 100.0]

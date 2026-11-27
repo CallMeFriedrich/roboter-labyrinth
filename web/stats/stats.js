@@ -103,6 +103,7 @@ function idleText(state) {
     return state.replay ? `Wiederholung von ${state.replay.name} wartet auf Freigabe` : "Der Roboter wartet auf Freigabe";
   }
   if (["DISCONNECTED", "ERROR"].includes(state.state)) return "Kurze Pause";
+  if (state.show) return "Der Roboter vertreibt sich die Zeit";
   if (state.result) return `${state.result.name} ist im Ziel`;
   if (["RETURNING_HOME", "ABORTING", "FINISHED"].includes(state.state)) return "Gleich geht es weiter";
   return WAITING[waitingIndex % WAITING.length];

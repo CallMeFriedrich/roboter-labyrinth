@@ -29,6 +29,7 @@ from ..robot.driver_sim import SimDriver
 from ..robot.jog_loop import JogLoop, KeyState
 from ..robot.manager import DEFAULT_TOOL, RobotManager
 from ..settings import ROOT, Config, SettingsStore
+from . import idle_show
 from .leaderboard import EntryError, Leaderboard, clean_birth_year, clean_name
 from .state_machine import ABORTABLE, JOG_STATES, IllegalTransition, State, StateMachine
 from .timer import RunTimer
@@ -96,6 +97,12 @@ class GameEngine:
         self._auto_timeout_task: asyncio.Task | None = None
         self._jog: JogLoop | None = None
         self._admin_lock = asyncio.Lock()
+        self.show_running = False               # idle show: the arm moves around by itself
+        self._show_task: asyncio.Task | None = None
+        self._show_stop = False
+        self._show_auto = False
+        self._show_cache: tuple | None = None
+        self.idle_since = time.monotonic()      # last time somebody did something
         self._hold: tuple[str, tuple[float, float, float], float] | None = None
         self._hold_task: asyncio.Task | None = None
         self._tasks: list[asyncio.Task] = []
@@ -111,7 +118,8 @@ class GameEngine:
         self.db.backup(self.config.resolve(self.config.paths.backups))
         self._load_active_labyrinth()
         self.robot.start()
-        self._tasks = [asyncio.create_task(self._broadcast_loop(), name="broadcast"),
+        self._tasks = [asyncio.create_task(self._idle_loop(), name="idle-show"),
+                       asyncio.create_task(self._broadcast_loop(), name="broadcast"),
                        asyncio.create_task(self._position_loop(), name="position")]
         await self.robot.connect()
 
@@ -128,6 +136,7 @@ class GameEngine:
 
     def _state_changed(self, old: State, new: State) -> None:
         log.info("Zustand %s → %s", old.value, new.value)
+        self.idle_since = time.monotonic()
         self.notify()
 
     # =============================================================== labyrinth
@@ -439,7 +448,7 @@ class GameEngine:
             return "Die Platte ist noch nicht eingemessen."
         if self.paused:
             return "Die Besucher sind pausiert."
-        if self._admin_lock.locked():
+        if self._admin_lock.locked() and not self.show_running:
             return "Der Roboter ist gerade beschäftigt."
         return None
 
@@ -498,6 +507,7 @@ class GameEngine:
             self.keys.clear()
 
     async def start_run(self, name: Any, birth_year: Any) -> None:
+        await self.stop_show()
         try:
             name, birth_year = clean_name(name), clean_birth_year(birth_year)
         except EntryError as exc:
@@ -512,7 +522,7 @@ class GameEngine:
         self.sm.to(S.MOVING_TO_START)
         self._run_task = asyncio.create_task(self._guarded(self._visitor_run), name="visitor-run")
 
-    SOUND_NAMES = ("win", "record", "wall", "giveup")
+    SOUND_NAMES = ("win", "record", "wall", "giveup", "tick", "go")
 
     async def sound_test(self, name: str) -> None:
         """Admin: play a sound on the visitor screen (to set the volume on site)."""
@@ -527,7 +537,14 @@ class GameEngine:
         mode = self.run.get("speed_mode", "normal") if self.run else self.speed_mode
         return float(self.settings[SPEED_MODES.get(mode, "visitor_speed")])
 
+    def touch(self) -> None:
+        """Somebody is at the exhibit: restart the idle-show clock and end an automatic show."""
+        self.idle_since = time.monotonic()
+        if self.show_running and self._show_auto:
+            self._show_stop = True          # current move ends, then back home – ready for the visitor
+
     def set_speed_mode(self, mode: Any) -> None:
+        self.touch()
         if mode not in SPEED_MODES:
             raise GameError("Unbekannte Geschwindigkeit.")
         if self.sm.state != S.IDLE:
@@ -693,6 +710,7 @@ class GameEngine:
 
     # ================================================================ auto run
     async def request_auto(self) -> None:
+        await self.stop_show()
         reason = self.why_not()
         if reason is not None:
             raise GameError(reason)
@@ -720,6 +738,7 @@ class GameEngine:
 
     async def start_auto(self) -> None:
         """Admin: approve a request or start the robot run directly."""
+        await self.stop_show()
         if self.sm.state == S.AUTO_REQUESTED:
             if self._auto_timeout_task is not None:
                 self._auto_timeout_task.cancel()
@@ -810,6 +829,134 @@ class GameEngine:
             await asyncio.sleep(rest)
         self._end_run()
 
+    # ================================================================ idle show
+    def show_plan(self) -> list:
+        """Checked choreography for the current home, tool and plate (cached)."""
+        frame = self.robot.plate_frame
+        if frame is None:
+            return []
+        width, height = self._plate_size()
+        tool = tuple(float(v) for v in self.robot.tool.origin)
+        radius = float(self.settings["idle_show_radius"]) * 10.0
+        style = self.settings["idle_show_style"]
+        scale = self._show_scale()
+        limits = [list(map(float, pair)) for pair in self.config.robot.joint_limits]
+        key = (tuple(self.robot.home_joints), tool, tuple(frame.as_list()), width, height, radius, style,
+               tuple(map(tuple, limits)), scale)
+        if self._show_cache is None or self._show_cache[0] != key:
+            self._show_cache = (key, idle_show.plan(list(self.robot.home_joints), tool, frame, width, height,
+                                                    radius, style, limits, scale))
+        return self._show_cache[1]
+
+    def _show_scale(self) -> float:
+        key = "idle_show_scale_full" if self.settings["idle_show_style"] == "full" else "idle_show_scale_compact"
+        return float(self.settings[key]) / 100.0
+
+    def show_status(self) -> dict:
+        moves = self.show_plan()
+        safe = [m for m in moves if m.safe]
+        return {"running": self.show_running, "safe": len(safe), "total": len(moves),
+                "skipped": [f"{m.name}: {m.reason}" for m in moves if not m.safe],
+                "idle_s": round(time.monotonic() - self.idle_since)}
+
+    def _show_problem(self) -> str | None:
+        if self.show_running:
+            return "Die Show läuft schon."
+        if self.sm.state != S.IDLE:
+            return "Die Show startet nur, wenn gerade niemand spielt."
+        if not (self.robot.connected and self.robot.home_confirmed):
+            return "Der Roboter ist nicht bereit (verbunden und Home bestätigt?)."
+        if self.robot.plate_frame is None:
+            return "Erst die Platte einmessen – sonst kann die Show den Abstand nicht prüfen."
+        if self._admin_lock.locked():
+            return "Der Roboter ist gerade beschäftigt."
+        if sum(m.safe for m in self.show_plan()) < idle_show.MIN_SAFE_MOVES:
+            return "Zu wenige Bewegungen sind frei von der Platte – die Show bleibt aus."
+        return None
+
+    async def start_show(self, auto: bool = False) -> None:
+        """Admin: show the movements once now (also when "Automatisch" is off).
+
+        auto=True (nobody played for the set time): the show repeats without a pause until
+        somebody plays, types at the kiosk, the admin stops it or switches "Automatisch" off.
+        """
+        problem = self._show_problem()
+        if problem:
+            raise GameError(problem)
+        self._show_stop = False
+        self._show_auto = auto
+        self.show_running = True
+        self._show_task = asyncio.create_task(self._guarded(self._show_run), name="idle-show-run")
+        self.notify()
+
+    async def stop_show(self) -> None:
+        """Finish the current move, go home. Called before anything else uses the robot."""
+        task = self._show_task
+        if task is None or task.done():
+            return
+        self._show_stop = True
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _show_run(self) -> None:
+        log.info("Leerlauf-Show startet (%s)", "Dauerschleife" if self._show_auto else "einmal")
+
+        def keep_going() -> bool:
+            if self._show_stop:
+                return False
+            return not self._show_auto or self.settings["idle_show"] == "on"
+
+        try:
+            async with self._admin_lock:
+                up = None                          # upright pose of the round that is running
+                try:
+                    while True:
+                        # Re-read every round: speed, style, size or free circle may have been changed.
+                        moves = [m for m in self.show_plan() if m.safe]
+                        plan_key = self._show_cache[0] if self._show_cache else None
+                        speed = float(self.settings["idle_show_speed"])
+                        if up is not None and up != idle_show.pivot(self.robot.home_joints, self._show_scale()):
+                            await self.robot.go_home()      # settings changed: new figures start from home
+                            up = None
+                        for move in moves:
+                            if not keep_going():
+                                break
+                            up = idle_show.pivot(self.robot.home_joints, self._show_scale())
+                            await self.robot.move_joints_at(move.joints, speed)
+                        if not (self._show_auto and keep_going() and len(moves) >= idle_show.MIN_SAFE_MOVES):
+                            break
+                        if up is not None:
+                            # Next round starts from the upright pose (every pose was checked to reach it).
+                            await self.robot.move_joints_at(up, speed)
+                        if self._show_cache is None or self._show_cache[0] != plan_key:
+                            if up is not None:
+                                await self.robot.go_home()
+                            up = None
+                finally:
+                    # Always back over this round's upright pose (every pose was checked to reach it), then home.
+                    if up is not None:
+                        await self.robot.move_joints_at(up, speed)
+                    await self.robot.go_home()
+        finally:
+            self.show_running = False
+            self.idle_since = time.monotonic()
+            self.notify()
+
+    async def _idle_loop(self) -> None:
+        """Start the show when nobody has played for the set time."""
+        while True:
+            await asyncio.sleep(2)
+            if self.settings["idle_show"] != "on":
+                continue
+            if time.monotonic() - self.idle_since < self.settings["idle_show_min"] * 60:
+                continue
+            if self._show_problem() is None:
+                try:
+                    await self.start_show(auto=True)
+                except GameError:
+                    pass
+            else:
+                self.idle_since = time.monotonic()    # try again after another idle period
+
     # ================================================================== replays
     def _replay_source(self, run_id: int) -> dict:
         run = self.db.get_run(run_id)
@@ -839,6 +986,7 @@ class GameEngine:
     async def request_replay(self, run_id: int) -> None:
         """Stats iPad: a visitor wants to see a run again with the real robot; an admin approves."""
         source = self._replay_source(run_id)
+        await self.stop_show()
         reason = self.why_not()
         if reason is not None:
             raise GameError(reason)
@@ -850,6 +998,7 @@ class GameEngine:
     async def start_replay(self, run_id: int) -> None:
         """Admin: replay a run with the robot right away."""
         source = self._replay_source(run_id)
+        await self.stop_show()
         reason = self.why_not()
         if reason is not None:
             raise GameError(reason)
@@ -908,6 +1057,7 @@ class GameEngine:
     # ============================================================ admin: robot
     @asynccontextmanager
     async def _admin_motion(self, need_connection: bool = True):
+        await self.stop_show()
         self._require_idle()
         if need_connection and not self.robot.connected:
             raise GameError("Der Roboter ist nicht verbunden.")
@@ -1297,6 +1447,7 @@ class GameEngine:
             "display": {"theme": self.settings["visitor_theme"], "rotate_s": self.settings["board_rotate_s"]},
             "profile": self.db.active_profile(), "runs_rev": self.db.runs_revision(),
             "replay": self.replay_public(),
+            "show": self.show_running,
         }
 
     def admin_snapshot(self) -> dict:
@@ -1325,6 +1476,7 @@ class GameEngine:
             "tool": self.db.get_setting("tool", DEFAULT_TOOL), "home_joints": robot.home_joints,
             "settings": self.settings.all(),
             "profiles": self.db.profiles(),
+            "show": self.show_status(),
             "active_labyrinth": ({"id": self.lab.id, "name": self.lab.name, "ready": self.lab.ready,
                                   "size": [self.lab.geometry.width, self.lab.geometry.height]}
                                  if self.lab else None),

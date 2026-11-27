@@ -181,6 +181,8 @@ COMMANDS: dict[str, Handler] = {
     "release": lambda e, b: _sync(e.release()),
     "sound_test": lambda e, b: e.sound_test(str(b.get("name", "win"))),
     "replay_start": lambda e, b: e.start_replay(int(b["id"])),
+    "show_start": lambda e, b: e.start_show(),
+    "show_stop": lambda e, b: e.stop_show(),
     "profile_add": lambda e, b: _sync({"id": e.create_profile(b.get("name"), bool(b.get("activate")))}),
     "profile_activate": lambda e, b: _sync(e.activate_profile(int(b["id"]))),
     "profile_rename": lambda e, b: _sync(e.rename_profile(int(b["id"]), b.get("name"))),

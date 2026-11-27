@@ -40,8 +40,9 @@ def test_admin_can_play_a_test_sound(simple_svg):
         engine = await make_engine(simple_svg)
         engine.hub = hub = RecordingHub()
         try:
-            await engine.sound_test("record")
-            assert {"type": "sound", "name": "record"} in hub.public
+            for name in ("record", "wall", "giveup", "tick", "go"):
+                await engine.sound_test(name)
+                assert {"type": "sound", "name": name} in hub.public
             with pytest.raises(GameError):
                 await engine.sound_test("explosion")
         finally:

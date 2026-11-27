@@ -305,6 +305,13 @@ class RobotManager:
         self._quat = None
         self.at_home = False
 
+    async def move_joints_at(self, joints: Sequence[float], speed: float) -> None:
+        """Joint move with an explicit speed (idle show); the caller checked the path."""
+        await self._do(self.driver.move_joints(joints, speed))
+        self.commanded = None
+        self._quat = None
+        self.at_home = False
+
     async def read_pose(self) -> Pose:
         return await self._do(self.driver.get_pose())
 

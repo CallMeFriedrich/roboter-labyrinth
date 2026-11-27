@@ -81,15 +81,29 @@ const SOUNDS = {
     for (const n of [84, 88, 91]) bell(c, n, t + 0.5, 1.4, 0.2);
     bell(c, 96, t + 0.62, 1.1, 0.12);
   },
-  // Touched the wall: two falling, muffled buzzer notes.
+  // Touched the wall: a loud, buzzing "eh-ehh" in the middle range (laptop speakers cannot
+  // play deep notes, so nothing here is below ~300 Hz).
   wall(c, t) {
-    tone(c, { freq: NOTE(55), start: t, dur: 0.28, type: "sawtooth", gain: 0.32, cutoff: 900 });
-    tone(c, { freq: NOTE(50), start: t + 0.3, dur: 0.75, type: "sawtooth", gain: 0.34, cutoff: 700,
-              glideTo: NOTE(46) });
+    for (const [start, dur] of [[0, 0.22], [0.27, 0.55]]) {
+      tone(c, { freq: NOTE(66), start: t + start, dur, type: "square", gain: 0.42, cutoff: 2600 });
+      tone(c, { freq: NOTE(67), start: t + start, dur, type: "sawtooth", gain: 0.3, cutoff: 2600 });  // beat = buzz
+    }
+    tone(c, { freq: NOTE(78), start: t + 0.27, dur: 0.55, type: "square", gain: 0.16, cutoff: 3000, glideTo: NOTE(72) });
   },
-  // Given up: one soft, falling note (nothing dramatic).
+  // Given up: a clear falling "wah wah wahh" – friendly, not dramatic, but audible.
   giveup(c, t) {
-    tone(c, { freq: NOTE(67), start: t, dur: 0.5, type: "sine", gain: 0.25, glideTo: NOTE(60) });
+    [[76, 0], [74, 0.24], [71, 0.48]].forEach(([n, at]) =>
+      tone(c, { freq: NOTE(n), start: t + at, dur: 0.22, type: "square", gain: 0.3, cutoff: 3200 }));
+    tone(c, { freq: NOTE(68), start: t + 0.72, dur: 0.7, type: "square", gain: 0.32, cutoff: 3200, glideTo: NOTE(64) });
+  },
+  // Countdown 3 · 2 · 1: short beeps; "Los": a longer, higher beep (like a race start).
+  tick(c, t) {
+    tone(c, { freq: 880, start: t, dur: 0.16, type: "square", gain: 0.34, cutoff: 4000 });
+    tone(c, { freq: 1760, start: t, dur: 0.1, type: "sine", gain: 0.12 });
+  },
+  go(c, t) {
+    tone(c, { freq: 1760, start: t, dur: 0.6, type: "square", gain: 0.36, cutoff: 5000 });
+    tone(c, { freq: 1318.5, start: t, dur: 0.6, type: "triangle", gain: 0.22 });
   },
 };
 

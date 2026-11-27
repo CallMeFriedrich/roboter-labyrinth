@@ -36,6 +36,9 @@ class RobotConfig(BaseModel):
     home_joints: list[float] = [0.0, 45.0, 0.0, 0.0, -45.0, 0.0]
     home_speed: float = 100.0
     admin_jog_speed: float = 20.0
+    # Joint limits [min, max] in degrees for axes 1-6. Default: product manual. The controller may
+    # have tighter limits programmed ("Upper/Lower Joint Bound"); enter those here.
+    joint_limits: list[list[float]] = [[-165, 165], [-110, 110], [-110, 70], [-160, 160], [-120, 120], [-400, 400]]
 
 
 class AdminConfig(BaseModel):
@@ -129,6 +132,13 @@ SETTING_DEFS: dict[str, NumberDef | ChoiceDef] = {
     "wall_abort": ChoiceDef("on", ("on", "off")),                # wall detection switched on/off
     "sound": ChoiceDef("on", ("on", "off")),                     # sounds on the visitor screen
     "visitor_theme": ChoiceDef("dark", ("dark", "light")),       # look of visitor screen + stats page
+    "idle_show": ChoiceDef("off", ("on", "off")),                # big calm moves when nobody plays
+    "idle_show_min": NumberDef(5, 1, 120, integer=True, unit="min"),
+    "idle_show_speed": NumberDef(100, 20, 250, unit="mm/s"),
+    "idle_show_radius": NumberDef(75, 40, 100, integer=True, unit="cm"),   # free circle around the robot
+    "idle_show_style": ChoiceDef("full", ("full", "compact")),   # with the full span or the compact show
+    "idle_show_scale_full": NumberDef(50, 10, 100, integer=True, unit="%"),     # size of the figures
+    "idle_show_scale_compact": NumberDef(100, 10, 100, integer=True, unit="%"),
     "board_rotate_s": NumberDef(8, 0, 60, integer=True, unit="s"),   # idle: next speed board, 0 = off
     "sound_volume": NumberDef(70, 0, 100, integer=True, unit="%"),
     "auto_extra_margin": NumberDef(1.5, 0, 5, unit="mm"),

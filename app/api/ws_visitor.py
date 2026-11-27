@@ -41,6 +41,8 @@ async def visitor_ws(ws: WebSocket) -> None:
                     await engine.give_up()
                 elif kind == "speed":
                     engine.set_speed_mode(message.get("mode"))
+                elif kind == "touch":
+                    engine.touch()          # somebody types at the kiosk: no idle show now
                 elif kind == "request_auto":
                     await engine.request_auto()
                 elif kind == "cancel_auto":
